@@ -133,8 +133,13 @@ export const autoQueueModeSchema = z.object({
 });
 
 export const broadcastProjectSchema = z.object({
-  type: z.enum(["project:auto_queue_mode_changed", "project:auto_queue_advanced"]),
-  taskId: z.string().uuid().optional(),
+  type: z.enum([
+    "project:auto_queue_mode_changed",
+    "project:auto_queue_advanced",
+    "project:runtime_limit_updated",
+  ]),
+  taskId: z.string().min(1).optional(),
+  runtimeProfileId: z.string().min(1).nullable().optional(),
 });
 
 export const roadmapImportSchema = z.object({

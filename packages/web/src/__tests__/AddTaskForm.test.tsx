@@ -65,7 +65,7 @@ describe("AddTaskForm", () => {
     mockRuntimesData.data = [];
   });
 
-  it("uses autoMode=true by default", () => {
+  it("uses autoMode=true by default", { timeout: 15_000 }, async () => {
     render(<AddTaskForm projectId="p-1" />);
 
     fireEvent.click(screen.getByText("Add task"));
@@ -74,15 +74,17 @@ describe("AddTaskForm", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
-    expect(mutateCreateTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: "p-1",
-        title: "Task with auto mode",
-        autoMode: true,
-        isFix: false,
-      }),
-      expect.any(Object),
-    );
+    await waitFor(() => {
+      expect(mutateCreateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "p-1",
+          title: "Task with auto mode",
+          autoMode: true,
+          isFix: false,
+        }),
+        expect.any(Object),
+      );
+    });
   });
 
   it("submits autoMode=false when checkbox is unchecked", () => {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Project, RuntimeProfile } from "@aif/shared/browser";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
@@ -16,6 +17,8 @@ import {
 } from "@/hooks/useRuntimeProfiles";
 import { RuntimeProfileForm } from "@/components/settings/RuntimeProfileForm";
 import { formatRuntimeProfileOptionLabel } from "@/lib/runtimeProfiles";
+import { getRuntimeLimitDisplay, runtimeLimitBadgeClassName } from "@/lib/runtimeLimits";
+import { useUsageLimitsEnabled } from "@/hooks/useSettings";
 
 interface Props {
   project: Project;
@@ -79,6 +82,16 @@ export function ProjectRuntimeSettings({
         label: formatRuntimeProfileOptionLabel(profile),
       }));
   }, [profiles]);
+  const usageLimitsEnabled = useUsageLimitsEnabled();
+  const recentLimitSignals = useMemo(() => {
+    if (!usageLimitsEnabled) return [];
+    return profiles.flatMap((profile) => {
+      const limitDisplay = getRuntimeLimitDisplay(profile.runtimeLimitSnapshot, {
+        checkedAt: profile.runtimeLimitUpdatedAt ?? null,
+      });
+      return limitDisplay ? [{ profile, limitDisplay }] : [];
+    });
+  }, [profiles, usageLimitsEnabled]);
 
   const taskDefaultEmptyLabel = appRuntimeDefaults?.resolvedDefaultTaskRuntimeProfileId
     ? "(app default)"
@@ -313,6 +326,42 @@ export function ProjectRuntimeSettings({
         </Button>
       </div>
 
+      {usageLimitsEnabled && (
+        <div className="space-y-2 border-t border-border pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Recent Limit Signals
+          </p>
+          {recentLimitSignals.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No recent runtime limit signals.</p>
+          ) : (
+            <div className="space-y-1">
+              {recentLimitSignals.map(({ profile, limitDisplay }) => (
+                <div
+                  key={`limit-${profile.id}`}
+                  className="border border-border bg-background/40 px-2 py-1.5"
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-medium">{profile.name}</span>
+                    <Badge size="sm" className={runtimeLimitBadgeClassName(limitDisplay.tone)}>
+                      {limitDisplay.label.toUpperCase()}
+                    </Badge>
+                    <span className="text-[11px] text-muted-foreground">
+                      {profile.runtimeId}/{profile.providerId}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{limitDisplay.summary}</p>
+                  {(limitDisplay.resetText || limitDisplay.checkedText) && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {[limitDisplay.resetText, limitDisplay.checkedText].filter(Boolean).join(" ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2 border-t border-border pt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Project Profiles
@@ -358,14 +407,49 @@ export function ProjectRuntimeSettings({
             {projectProfiles.map((profile) => (
               <div
                 key={profile.id}
-                className="flex items-center justify-between rounded border border-border bg-background/40 px-2 py-1.5"
+                className="flex items-start justify-between rounded border border-border bg-background/40 px-2 py-1.5"
               >
-                <div>
+                <div className="min-w-0 pr-3">
                   <p className="text-xs font-medium">{formatRuntimeProfileOptionLabel(profile)}</p>
                   <p className="text-[11px] text-muted-foreground">
                     transport={profile.transport ?? "default"} model=
                     {profile.defaultModel ?? "auto"} {profile.enabled ? "" : "disabled"}
                   </p>
+                  {usageLimitsEnabled &&
+                    (() => {
+                      const limitDisplay = getRuntimeLimitDisplay(profile.runtimeLimitSnapshot, {
+                        checkedAt: profile.runtimeLimitUpdatedAt ?? null,
+                      });
+                      if (!limitDisplay) {
+                        return (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            No recent runtime limit signal.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="mt-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge
+                              size="sm"
+                              className={runtimeLimitBadgeClassName(limitDisplay.tone)}
+                            >
+                              {limitDisplay.label.toUpperCase()}
+                            </Badge>
+                            <span className="text-[11px] text-muted-foreground">
+                              {limitDisplay.summary}
+                            </span>
+                          </div>
+                          {(limitDisplay.resetText || limitDisplay.checkedText) && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {[limitDisplay.resetText, limitDisplay.checkedText]
+                                .filter(Boolean)
+                                .join(" ")}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button

@@ -9,7 +9,7 @@ import { buildSettingsOverview, settingsRoutes } from "./routes/settings.js";
 import { runtimeProfilesRouter } from "./routes/runtimeProfiles.js";
 import { codexAuthRouter } from "./routes/codexAuth.js";
 import { githubRouter } from "./routes/github.js";
-import { setupWebSocket } from "./ws.js";
+import { setupWebSocket, closeAllWebSocketClients } from "./ws.js";
 import { requestLogger } from "./middleware/logger.js";
 import { startServer } from "./serverBootstrap.js";
 
@@ -107,5 +107,28 @@ const server = startServer({
   injectWebSocket,
   logger: log,
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown: close HTTP server + terminate WS clients so Ctrl+C /
+// tsx-watch reload frees port 3009 without a second signal. Without this the
+// open WS connections keep the event loop alive and the next restart hits
+// EADDRINUSE.
+// ---------------------------------------------------------------------------
+let shuttingDown = false;
+function onShutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info({ signal }, "Shutdown signal received — terminating WS + exiting");
+  closeAllWebSocketClients();
+  // Fire-and-forget server.close so any in-flight response can drain, but
+  // don't wait for its callback — tsx watch + turbo race on Ctrl+C and
+  // print "Previous process hasn't exited yet. Force killing..." if the
+  // child exit is delayed even briefly. Exit synchronously instead.
+  server.close();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => onShutdown("SIGINT"));
+process.on("SIGTERM", () => onShutdown("SIGTERM"));
 
 export { app, server };

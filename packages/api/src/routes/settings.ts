@@ -89,6 +89,7 @@ export async function buildSettingsOverview() {
       useSubagents: env.AGENT_USE_SUBAGENTS,
       maxReviewIterations: env.AGENT_MAX_REVIEW_ITERATIONS,
       autoReviewStrategy: env.AGENT_AUTO_REVIEW_STRATEGY,
+      usageLimitsEnabled: env.AIF_USAGE_LIMITS_ENABLED,
       runtimeReadiness: {
         availableRuntimeCount: registry.listRuntimes().length,
         runtimeProfileCount: runtimeProfiles.length,
@@ -109,6 +110,7 @@ export async function buildSettingsOverview() {
       useSubagents: env.AGENT_USE_SUBAGENTS,
       maxReviewIterations: env.AGENT_MAX_REVIEW_ITERATIONS,
       autoReviewStrategy: env.AGENT_AUTO_REVIEW_STRATEGY,
+      usageLimitsEnabled: env.AIF_USAGE_LIMITS_ENABLED,
       runtimeReadiness: {
         availableRuntimeCount: 0,
         runtimeProfileCount: allProfiles.length,

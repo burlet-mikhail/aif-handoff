@@ -46,10 +46,10 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
   const [configExists, setConfigExists] = useState<boolean | null>(null);
   const [configData, setConfigData] = useState<AifConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
-  const [taskDefaultId, setTaskDefaultId] = useState("");
-  const [planDefaultId, setPlanDefaultId] = useState("");
-  const [reviewDefaultId, setReviewDefaultId] = useState("");
-  const [chatDefaultId, setChatDefaultId] = useState("");
+  const [taskDefaultIdDraft, setTaskDefaultIdDraft] = useState<string | null>(null);
+  const [planDefaultIdDraft, setPlanDefaultIdDraft] = useState<string | null>(null);
+  const [reviewDefaultIdDraft, setReviewDefaultIdDraft] = useState<string | null>(null);
+  const [chatDefaultIdDraft, setChatDefaultIdDraft] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<RuntimeProfile | null>(null);
   const [deletingProfile, setDeletingProfile] = useState<RuntimeProfile | null>(null);
   const [creating, setCreating] = useState(false);
@@ -76,10 +76,6 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
 
   useEffect(() => {
     if (!open) return;
-    setMcpError(null);
-    setMcpInstalled(null);
-    setMcpRuntimes([]);
-    setMcpLoading(false);
     api.getMcpStatus().then(
       (res) => {
         setMcpInstalled(res.installed);
@@ -94,7 +90,6 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
       },
       () => setMcpInstalled(null),
     );
-    setConfigData(null);
     if (projectId) {
       api.getConfigStatus(projectId).then(
         (res) => {
@@ -112,38 +107,39 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
         },
         () => setConfigExists(false),
       );
-    } else {
-      setConfigExists(false);
     }
   }, [open, projectId]);
 
-  useEffect(() => {
-    if (!open || !appRuntimeDefaults || profilesLoading) return;
+  const normalizeDefaultId = (runtimeProfileId: string | null | undefined) =>
+    runtimeProfileId && enabledGlobalProfileIds.has(runtimeProfileId) ? runtimeProfileId : "";
 
-    const normalizeDefaultId = (runtimeProfileId: string | null | undefined) =>
-      runtimeProfileId && enabledGlobalProfileIds.has(runtimeProfileId) ? runtimeProfileId : "";
-    const persistedDefaultIds = [
+  const hasUnavailablePersistedDefault = useMemo(() => {
+    if (!open || !appRuntimeDefaults || profilesLoading) return false;
+    return [
       appRuntimeDefaults.defaultTaskRuntimeProfileId,
       appRuntimeDefaults.defaultPlanRuntimeProfileId,
       appRuntimeDefaults.defaultReviewRuntimeProfileId,
       appRuntimeDefaults.defaultChatRuntimeProfileId,
-    ];
-    const hasUnavailablePersistedDefault = persistedDefaultIds.some(
+    ].some(
       (runtimeProfileId) => runtimeProfileId && !enabledGlobalProfileIds.has(runtimeProfileId),
     );
-
-    setTaskDefaultId(normalizeDefaultId(appRuntimeDefaults.defaultTaskRuntimeProfileId));
-    setPlanDefaultId(normalizeDefaultId(appRuntimeDefaults.defaultPlanRuntimeProfileId));
-    setReviewDefaultId(normalizeDefaultId(appRuntimeDefaults.defaultReviewRuntimeProfileId));
-    setChatDefaultId(normalizeDefaultId(appRuntimeDefaults.defaultChatRuntimeProfileId));
-
-    if (hasUnavailablePersistedDefault) {
-      setStatusMessage(
-        "One or more disabled app defaults are no longer selectable and will be cleared on save.",
-      );
-      setStatusVariant("neutral");
-    }
   }, [appRuntimeDefaults, enabledGlobalProfileIds, open, profilesLoading]);
+
+  const taskDefaultId =
+    taskDefaultIdDraft ?? normalizeDefaultId(appRuntimeDefaults?.defaultTaskRuntimeProfileId);
+  const planDefaultId =
+    planDefaultIdDraft ?? normalizeDefaultId(appRuntimeDefaults?.defaultPlanRuntimeProfileId);
+  const reviewDefaultId =
+    reviewDefaultIdDraft ?? normalizeDefaultId(appRuntimeDefaults?.defaultReviewRuntimeProfileId);
+  const chatDefaultId =
+    chatDefaultIdDraft ?? normalizeDefaultId(appRuntimeDefaults?.defaultChatRuntimeProfileId);
+
+  const visibleStatusMessage =
+    statusMessage ??
+    (hasUnavailablePersistedDefault
+      ? "One or more disabled app defaults are no longer selectable and will be cleared on save."
+      : null);
+  const visibleStatusVariant = statusMessage ? statusVariant : "neutral";
 
   const runtimeOptions = useMemo(() => {
     return enabledGlobalProfiles.map((profile) => ({
@@ -206,6 +202,28 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
       setStatusMessage(error instanceof Error ? error.message : "Failed to save defaults");
       setStatusVariant("error");
     }
+  };
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setMcpInstalled(null);
+      setMcpRuntimes([]);
+      setMcpLoading(false);
+      setMcpError(null);
+      setConfigExists(null);
+      setConfigData(null);
+      setConfigLoading(false);
+      setTaskDefaultIdDraft(null);
+      setPlanDefaultIdDraft(null);
+      setReviewDefaultIdDraft(null);
+      setChatDefaultIdDraft(null);
+      setEditingProfile(null);
+      setDeletingProfile(null);
+      setCreating(false);
+      setStatusMessage(null);
+      setStatusVariant("neutral");
+    }
+    onOpenChange(nextOpen);
   };
 
   const handleValidateProfile = async (profileId: string) => {
@@ -298,9 +316,9 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-        <DialogClose onClose={() => onOpenChange(false)} />
+        <DialogClose onClose={() => handleDialogOpenChange(false)} />
         <DialogHeader>
           <DialogTitle>Global Settings</DialogTitle>
         </DialogHeader>
@@ -326,7 +344,7 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
                 <p className="text-xs text-muted-foreground">Implementation</p>
                 <Select
                   value={taskDefaultId}
-                  onChange={(e) => setTaskDefaultId(e.target.value)}
+                  onChange={(e) => setTaskDefaultIdDraft(e.target.value)}
                   placeholder="(env fallback)"
                   options={[
                     { value: "", label: "(env fallback)" },
@@ -338,7 +356,7 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
                 <p className="text-xs text-muted-foreground">Planning</p>
                 <Select
                   value={planDefaultId}
-                  onChange={(e) => setPlanDefaultId(e.target.value)}
+                  onChange={(e) => setPlanDefaultIdDraft(e.target.value)}
                   placeholder="(inherit from task default)"
                   options={[
                     { value: "", label: "(inherit from task default)" },
@@ -350,7 +368,7 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
                 <p className="text-xs text-muted-foreground">Review</p>
                 <Select
                   value={reviewDefaultId}
-                  onChange={(e) => setReviewDefaultId(e.target.value)}
+                  onChange={(e) => setReviewDefaultIdDraft(e.target.value)}
                   placeholder="(inherit from task default)"
                   options={[
                     { value: "", label: "(inherit from task default)" },
@@ -362,7 +380,7 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
                 <p className="text-xs text-muted-foreground">Chat</p>
                 <Select
                   value={chatDefaultId}
-                  onChange={(e) => setChatDefaultId(e.target.value)}
+                  onChange={(e) => setChatDefaultIdDraft(e.target.value)}
                   placeholder="(env fallback)"
                   options={[
                     { value: "", label: "(env fallback)" },
@@ -480,17 +498,17 @@ export function GlobalSettingsDialog({ open, onOpenChange, projectId }: GlobalSe
                 </div>
               )}
 
-              {statusMessage && (
+              {visibleStatusMessage && (
                 <p
                   className={`text-xs ${
-                    statusVariant === "error"
+                    visibleStatusVariant === "error"
                       ? "text-red-500"
-                      : statusVariant === "success"
+                      : visibleStatusVariant === "success"
                         ? "text-green-500"
                         : "text-muted-foreground"
                   }`}
                 >
-                  {statusMessage}
+                  {visibleStatusMessage}
                 </p>
               )}
             </div>

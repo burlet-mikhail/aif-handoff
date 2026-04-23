@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { Project } from "@aif/shared/browser";
+import type { Project, RuntimeProfile } from "@aif/shared/browser";
 
 const mockUpdateProject = {
   mutateAsync: vi.fn(),
@@ -22,6 +22,11 @@ const mockDeleteRuntimeProfile = {
   isPending: false,
 };
 
+const mockValidateRuntimeProfile = {
+  mutateAsync: vi.fn(),
+  isPending: false,
+};
+
 const mockAppRuntimeDefaults = {
   data: {
     resolvedDefaultTaskRuntimeProfileId: "global-1",
@@ -31,38 +36,8 @@ const mockAppRuntimeDefaults = {
   },
 };
 
-const mixedProfiles = [
-  {
-    id: "project-1",
-    projectId: "project-a",
-    name: "Project Local",
-    runtimeId: "claude",
-    providerId: "anthropic",
-    transport: "sdk",
-    defaultModel: "sonnet",
-    enabled: true,
-  },
-  {
-    id: "global-1",
-    projectId: null,
-    name: "Shared Codex",
-    runtimeId: "codex",
-    providerId: "openai",
-    transport: "cli",
-    defaultModel: "gpt-5.4",
-    enabled: true,
-  },
-  {
-    id: "global-disabled",
-    projectId: null,
-    name: "Disabled Global",
-    runtimeId: "codex",
-    providerId: "openai",
-    transport: "cli",
-    defaultModel: "gpt-5.4",
-    enabled: false,
-  },
-];
+let mockProfiles: RuntimeProfile[] = [];
+let mockProjectProfiles: RuntimeProfile[] = [];
 
 vi.mock("@/hooks/useProjects", () => ({
   useUpdateProject: () => mockUpdateProject,
@@ -72,15 +47,64 @@ vi.mock("@/hooks/useRuntimeProfiles", () => ({
   useAppRuntimeDefaults: () => mockAppRuntimeDefaults,
   useCreateRuntimeProfile: () => mockCreateRuntimeProfile,
   useDeleteRuntimeProfile: () => mockDeleteRuntimeProfile,
-  useProjectRuntimeProfiles: () => ({ data: [mixedProfiles[0]], isLoading: false }),
+  useProjectRuntimeProfiles: () => ({ data: mockProjectProfiles, isLoading: false }),
   useRuntimes: () => ({ data: [] }),
-  useRuntimeProfiles: () => ({ data: mixedProfiles, isLoading: false }),
-  useUpdateRuntimeProfile: () => mockUpdateRuntimeProfile,
-  useValidateRuntimeProfile: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRuntimeModels: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRuntimeProfiles: () => ({ data: mockProfiles, isLoading: false }),
+  useUpdateRuntimeProfile: () => mockUpdateRuntimeProfile,
+  useValidateRuntimeProfile: () => mockValidateRuntimeProfile,
 }));
 
 const { ProjectRuntimeSettings } = await import("@/components/project/ProjectRuntimeSettings");
+
+const baseProjectProfile: RuntimeProfile = {
+  id: "project-1",
+  projectId: "project-a",
+  name: "Project Local",
+  runtimeId: "claude",
+  providerId: "anthropic",
+  transport: "sdk",
+  baseUrl: null,
+  apiKeyEnvVar: null,
+  defaultModel: "sonnet",
+  headers: {},
+  options: {},
+  enabled: true,
+  runtimeLimitSnapshot: null,
+  runtimeLimitUpdatedAt: null,
+  lastUsage: null,
+  lastUsageAt: null,
+  createdAt: "2026-04-20T00:00:00.000Z",
+  updatedAt: "2026-04-20T00:00:00.000Z",
+};
+
+const baseGlobalProfile: RuntimeProfile = {
+  id: "global-1",
+  projectId: null,
+  name: "Shared Codex",
+  runtimeId: "codex",
+  providerId: "openai",
+  transport: "cli",
+  baseUrl: null,
+  apiKeyEnvVar: null,
+  defaultModel: "gpt-5.4",
+  headers: {},
+  options: {},
+  enabled: true,
+  runtimeLimitSnapshot: null,
+  runtimeLimitUpdatedAt: null,
+  lastUsage: null,
+  lastUsageAt: null,
+  createdAt: "2026-04-20T00:00:00.000Z",
+  updatedAt: "2026-04-20T00:00:00.000Z",
+};
+
+const baseDisabledGlobalProfile: RuntimeProfile = {
+  ...baseGlobalProfile,
+  id: "global-disabled",
+  name: "Disabled Global",
+  enabled: false,
+};
 
 const project: Project = {
   id: "project-a",
@@ -102,26 +126,65 @@ const project: Project = {
 
 describe("ProjectRuntimeSettings", () => {
   beforeEach(() => {
+    mockProfiles = [baseProjectProfile, baseGlobalProfile, baseDisabledGlobalProfile];
+    mockProjectProfiles = [baseProjectProfile];
     mockUpdateProject.mutateAsync.mockReset();
     mockUpdateProject.mutateAsync.mockResolvedValue(project);
     mockCreateRuntimeProfile.mutateAsync.mockReset();
-    mockDeleteRuntimeProfile.mutateAsync.mockReset();
-    mockDeleteRuntimeProfile.mutateAsync.mockResolvedValue({ success: true });
     mockUpdateRuntimeProfile.mutateAsync.mockReset();
     mockUpdateRuntimeProfile.mutateAsync.mockResolvedValue({
-      ...mixedProfiles[0],
+      ...baseProjectProfile,
       projectId: null,
     });
+    mockDeleteRuntimeProfile.mutateAsync.mockReset();
+    mockDeleteRuntimeProfile.mutateAsync.mockResolvedValue({ success: true });
+    mockValidateRuntimeProfile.mutateAsync.mockReset();
+  });
+
+  it("renders structured runtime health for configured profiles", () => {
+    const limitProfile: RuntimeProfile = {
+      ...baseProjectProfile,
+      name: "Claude Team",
+      runtimeLimitSnapshot: {
+        source: "api_headers",
+        status: "blocked",
+        precision: "exact",
+        checkedAt: "2026-04-17T00:00:00.000Z",
+        providerId: "anthropic",
+        runtimeId: "claude",
+        profileId: "project-1",
+        primaryScope: "requests",
+        resetAt: "2099-04-17T01:00:00.000Z",
+        retryAfterSeconds: null,
+        warningThreshold: 10,
+        windows: [
+          {
+            scope: "requests",
+            percentRemaining: 5,
+            warningThreshold: 10,
+          },
+        ],
+        providerMeta: null,
+      },
+      runtimeLimitUpdatedAt: "2026-04-17T00:00:00.000Z",
+    };
+
+    mockProfiles = [limitProfile];
+    mockProjectProfiles = [limitProfile];
+
+    render(<ProjectRuntimeSettings project={project} open hideTrigger />);
+
+    expect(screen.getByText("Recent Limit Signals")).toBeDefined();
+    expect(screen.getAllByText("Claude Team").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("BLOCKED").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/5% remaining/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Provider reset/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Last checked/).length).toBeGreaterThan(0);
   });
 
   it("shows both project and global profiles in separate sections", async () => {
     render(
-      <ProjectRuntimeSettings
-        project={project}
-        open={true}
-        onOpenChange={vi.fn()}
-        hideTrigger={true}
-      />,
+      <ProjectRuntimeSettings project={project} open={true} onOpenChange={vi.fn()} hideTrigger />,
     );
 
     expect(
@@ -140,7 +203,6 @@ describe("ProjectRuntimeSettings", () => {
         name: "Project Local [Project] (claude/anthropic)",
       }),
     );
-
     fireEvent.click(
       screen.getAllByRole("button", {
         name: "Shared Codex [Global] (codex/openai)",
@@ -160,12 +222,7 @@ describe("ProjectRuntimeSettings", () => {
 
   it("promotes a project profile to global scope", async () => {
     render(
-      <ProjectRuntimeSettings
-        project={project}
-        open={true}
-        onOpenChange={vi.fn()}
-        hideTrigger={true}
-      />,
+      <ProjectRuntimeSettings project={project} open={true} onOpenChange={vi.fn()} hideTrigger />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Make Global" }));
@@ -180,12 +237,7 @@ describe("ProjectRuntimeSettings", () => {
 
   it("keeps disabled profiles in management lists but removes them from default selectors", () => {
     render(
-      <ProjectRuntimeSettings
-        project={project}
-        open={true}
-        onOpenChange={vi.fn()}
-        hideTrigger={true}
-      />,
+      <ProjectRuntimeSettings project={project} open={true} onOpenChange={vi.fn()} hideTrigger />,
     );
 
     expect(screen.getAllByText("Disabled Global [Global] (codex/openai)")).toHaveLength(1);
@@ -202,12 +254,7 @@ describe("ProjectRuntimeSettings", () => {
 
   it("deletes a global profile from the project screen after confirmation", async () => {
     render(
-      <ProjectRuntimeSettings
-        project={project}
-        open={true}
-        onOpenChange={vi.fn()}
-        hideTrigger={true}
-      />,
+      <ProjectRuntimeSettings project={project} open={true} onOpenChange={vi.fn()} hideTrigger />,
     );
 
     const label = screen.getByText("Shared Codex [Global] (codex/openai)");

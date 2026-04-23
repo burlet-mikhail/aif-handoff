@@ -113,6 +113,8 @@ function ensureTables(sqlite: Database.Database): void {
       model_override TEXT,
       runtime_options_json TEXT,
       session_id TEXT,
+      runtime_limit_snapshot_json TEXT,
+      runtime_limit_updated_at TEXT,
       locked_by TEXT,
       locked_until TEXT,
       scheduled_at TEXT,
@@ -144,6 +146,8 @@ function ensureTables(sqlite: Database.Database): void {
       headers_json TEXT NOT NULL DEFAULT '{}',
       options_json TEXT NOT NULL DEFAULT '{}',
       enabled INTEGER NOT NULL DEFAULT 1,
+      runtime_limit_snapshot_json TEXT,
+      runtime_limit_updated_at TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
@@ -414,6 +418,16 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 13,
+    description: "Persist runtime limit snapshots on runtime_profiles and tasks",
+    sql: `
+      ALTER TABLE runtime_profiles ADD COLUMN runtime_limit_snapshot_json TEXT;
+      ALTER TABLE runtime_profiles ADD COLUMN runtime_limit_updated_at TEXT;
+      ALTER TABLE tasks ADD COLUMN runtime_limit_snapshot_json TEXT;
+      ALTER TABLE tasks ADD COLUMN runtime_limit_updated_at TEXT;
+    `,
+  },
+  {
+    version: 14,
     description: "Add app_settings singleton table and extend runtime-profile cleanup coverage",
     sql: `
       CREATE TABLE IF NOT EXISTS app_settings (
@@ -468,6 +482,17 @@ const MIGRATIONS: Migration[] = [
          WHERE id = 1;
        END`,
     ],
+  },
+  {
+    version: 15,
+    description:
+      "Re-apply runtime limit snapshot columns for DBs that skipped v13 due to branch-merge re-ordering",
+    sql: `
+      ALTER TABLE runtime_profiles ADD COLUMN runtime_limit_snapshot_json TEXT;
+      ALTER TABLE runtime_profiles ADD COLUMN runtime_limit_updated_at TEXT;
+      ALTER TABLE tasks ADD COLUMN runtime_limit_snapshot_json TEXT;
+      ALTER TABLE tasks ADD COLUMN runtime_limit_updated_at TEXT;
+    `,
   },
 ];
 
@@ -639,6 +664,40 @@ function runRuntimeBackfills(sqlite: Database.Database): void {
     log.info(
       { backfilledRows: manualReviewBackfill.changes },
       "Backfilled task manual_review_required defaults",
+    );
+  }
+
+  if (hasColumn(sqlite, "runtime_profiles", "runtime_limit_snapshot_json")) {
+    const runtimeProfileLimitBackfill = sqlite
+      .prepare(
+        `
+        UPDATE runtime_profiles
+        SET runtime_limit_snapshot_json = NULL
+        WHERE runtime_limit_snapshot_json IS NOT NULL
+          AND trim(runtime_limit_snapshot_json) = ''
+      `,
+      )
+      .run();
+    log.info(
+      { backfilledRows: runtimeProfileLimitBackfill.changes },
+      "Backfilled runtime profile empty runtime_limit_snapshot_json values",
+    );
+  }
+
+  if (hasColumn(sqlite, "tasks", "runtime_limit_snapshot_json")) {
+    const taskLimitBackfill = sqlite
+      .prepare(
+        `
+        UPDATE tasks
+        SET runtime_limit_snapshot_json = NULL
+        WHERE runtime_limit_snapshot_json IS NOT NULL
+          AND trim(runtime_limit_snapshot_json) = ''
+      `,
+      )
+      .run();
+    log.info(
+      { backfilledRows: taskLimitBackfill.changes },
+      "Backfilled task empty runtime_limit_snapshot_json values",
     );
   }
 }

@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { jsonValidator } from "../middleware/zodValidator.js";
+import { internalBroadcastAuth } from "../middleware/internalBroadcastAuth.js";
 import { logger, getProjectConfig } from "@aif/shared";
-import { findTaskById } from "@aif/data";
+import { findRuntimeProfileById, findTaskById } from "@aif/data";
 import {
   createProjectSchema,
   roadmapImportSchema,
@@ -21,7 +22,7 @@ import {
   deleteProject,
   getProjectMcpServers,
 } from "../repositories/projects.js";
-import { toTaskResponse } from "@aif/data";
+import { toTaskBroadcastPayload } from "../repositories/tasks.js";
 import {
   generateRoadmapFile,
   generateRoadmapTasks,
@@ -189,7 +190,7 @@ projectsRouter.post("/:id/roadmap/import", jsonValidator(roadmapImportSchema), a
     for (const taskId of result.taskIds) {
       const task = findTaskById(taskId);
       if (task) {
-        broadcast({ type: "task:created", payload: toTaskResponse(task) });
+        broadcast({ type: "task:created", payload: toTaskBroadcastPayload(task) });
       }
     }
 
@@ -251,20 +252,63 @@ projectsRouter.patch("/:id/auto-queue-mode", jsonValidator(autoQueueModeSchema),
 });
 
 // POST /projects/:id/broadcast — emit project-scoped WS event (used by agent coordinator)
-projectsRouter.post("/:id/broadcast", jsonValidator(broadcastProjectSchema), async (c) => {
-  const { id } = c.req.param();
-  const { type, taskId } = c.req.valid("json");
-  const project = findProjectById(id);
-  if (!project) return c.json({ error: "Project not found" }, 404);
+projectsRouter.post(
+  "/:id/broadcast",
+  internalBroadcastAuth,
+  jsonValidator(broadcastProjectSchema),
+  async (c) => {
+    const { id } = c.req.param();
+    const { type, taskId, runtimeProfileId } = c.req.valid("json");
+    const project = findProjectById(id);
+    if (!project) return c.json({ error: "Project not found" }, 404);
 
-  if (type === "project:auto_queue_advanced" && taskId) {
-    broadcast({ type, payload: { id: taskId } });
-  } else {
-    broadcast({ type, payload: project });
-  }
-  log.debug({ projectId: id, type, taskId }, "Project WS broadcast triggered");
-  return c.json({ success: true });
-});
+    if (type === "project:auto_queue_advanced" && taskId) {
+      const task = findTaskById(taskId);
+      if (!task || task.projectId !== id) {
+        return c.json({ error: "taskId does not belong to the target project" }, 400);
+      }
+    }
+
+    if (type === "project:runtime_limit_updated" && !runtimeProfileId) {
+      return c.json(
+        { error: "runtimeProfileId is required for project:runtime_limit_updated" },
+        400,
+      );
+    }
+
+    if (type === "project:runtime_limit_updated" && runtimeProfileId) {
+      const runtimeProfile = findRuntimeProfileById(runtimeProfileId);
+      const belongsToProject =
+        runtimeProfile?.projectId === id || runtimeProfile?.projectId == null;
+      if (!runtimeProfile || !belongsToProject) {
+        return c.json(
+          { error: "runtimeProfileId must belong to the target project or be global" },
+          400,
+        );
+      }
+    }
+
+    if (type === "project:auto_queue_advanced" && taskId) {
+      broadcast({ type, payload: { id: taskId } });
+    } else if (type === "project:runtime_limit_updated") {
+      broadcast({
+        type,
+        payload: {
+          projectId: id,
+          runtimeProfileId: runtimeProfileId ?? null,
+          taskId: taskId ?? null,
+        },
+      });
+    } else {
+      broadcast({ type, payload: project });
+    }
+    log.debug(
+      { projectId: id, type, taskId: taskId ?? null, runtimeProfileId: runtimeProfileId ?? null },
+      "Project WS broadcast triggered",
+    );
+    return c.json({ success: true });
+  },
+);
 
 // DELETE /projects/:id
 projectsRouter.delete("/:id", (c) => {
@@ -301,7 +345,7 @@ async function runRoadmapGenerationJob(
     for (const taskId of result.taskIds) {
       const task = findTaskById(taskId);
       if (task) {
-        broadcast({ type: "task:created", payload: toTaskResponse(task) });
+        broadcast({ type: "task:created", payload: toTaskBroadcastPayload(task) });
       }
     }
 

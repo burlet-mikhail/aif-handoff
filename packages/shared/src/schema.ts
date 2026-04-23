@@ -97,6 +97,8 @@ export const tasks = sqliteTable("tasks", {
   modelOverride: text("model_override"),
   runtimeOptionsJson: text("runtime_options_json"),
   sessionId: text("session_id"),
+  runtimeLimitSnapshotJson: text("runtime_limit_snapshot_json"),
+  runtimeLimitUpdatedAt: text("runtime_limit_updated_at"),
   lockedBy: text("locked_by"),
   lockedUntil: text("locked_until"),
   scheduledAt: text("scheduled_at"),
@@ -142,6 +144,8 @@ export const runtimeProfiles = sqliteTable("runtime_profiles", {
   headersJson: text("headers_json").notNull().default("{}"),
   optionsJson: text("options_json").notNull().default("{}"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  runtimeLimitSnapshotJson: text("runtime_limit_snapshot_json"),
+  runtimeLimitUpdatedAt: text("runtime_limit_updated_at"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),

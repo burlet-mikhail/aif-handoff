@@ -295,3 +295,28 @@ export const codexCallbackSchema = z
       ctx.addIssue({ code: "custom", path: ["url"], message: "missing_state" });
     }
   });
+
+export const githubCloneSchema = z.object({
+  repoFullName: z.string().min(1, "Repository full name is required").max(500),
+  dirName: z.string().max(200).optional(),
+});
+
+export const githubPullSchema = z.object({
+  rootPath: z.string().min(1, "Root path is required"),
+});
+
+export const githubCommitSchema = z.object({
+  rootPath: z.string().min(1, "Root path is required"),
+  message: z.string().min(1, "Commit message is required").max(2000),
+  files: z.array(z.string().max(500)).max(200).optional(),
+});
+
+export const githubCheckoutSchema = z.object({
+  rootPath: z.string().min(1, "Root path is required"),
+  branch: z.string().min(1, "Branch name is required").max(200),
+});
+
+export const githubLogSchema = z.object({
+  rootPath: z.string().min(1, "Root path is required"),
+  limit: z.number().int().min(1).max(100).default(20),
+});

@@ -627,4 +627,92 @@ export const api = {
     console.debug("[api] POST /auth/codex/login/cancel");
     return request("/auth/codex/login/cancel", { method: "POST" });
   },
+
+  // GitHub import
+  listGitHubRepos(): Promise<
+    Array<{
+      nameWithOwner: string;
+      description: string;
+      url: string;
+      isPrivate: boolean;
+      updatedAt: string;
+      defaultBranchRef: { name: string } | null;
+    }>
+  > {
+    console.debug("[api] GET /github/repos");
+    return request("/github/repos");
+  },
+
+  cloneGitHubRepo(input: {
+    repoFullName: string;
+    dirName?: string;
+  }): Promise<{ path: string; alreadyExists: boolean }> {
+    console.debug("[api] POST /github/clone", input);
+    return request("/github/clone", { method: "POST", body: JSON.stringify(input) }, 120_000);
+  },
+
+  gitPull(rootPath: string): Promise<{ output: string }> {
+    console.debug("[api] POST /github/pull", { rootPath });
+    return request("/github/pull", {
+      method: "POST",
+      body: JSON.stringify({ rootPath }),
+    });
+  },
+
+  gitStatus(rootPath: string): Promise<{
+    branch: string;
+    staged: string[];
+    modified: string[];
+    untracked: string[];
+    ahead: number;
+    behind: number;
+  }> {
+    return request("/github/status", {
+      method: "POST",
+      body: JSON.stringify({ rootPath }),
+    });
+  },
+
+  gitLog(
+    rootPath: string,
+    limit = 20,
+  ): Promise<
+    Array<{
+      hash: string;
+      shortHash: string;
+      author: string;
+      relativeDate: string;
+      message: string;
+    }>
+  > {
+    return request("/github/log", {
+      method: "POST",
+      body: JSON.stringify({ rootPath, limit }),
+    });
+  },
+
+  gitBranches(rootPath: string): Promise<{ current: string; branches: string[] }> {
+    return request("/github/branches", {
+      method: "POST",
+      body: JSON.stringify({ rootPath }),
+    });
+  },
+
+  gitCheckout(rootPath: string, branch: string): Promise<{ branch: string }> {
+    return request("/github/checkout", {
+      method: "POST",
+      body: JSON.stringify({ rootPath, branch }),
+    });
+  },
+
+  gitCommit(input: {
+    rootPath: string;
+    message: string;
+    files?: string[];
+  }): Promise<{ hash: string; output: string }> {
+    return request("/github/commit", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
 };

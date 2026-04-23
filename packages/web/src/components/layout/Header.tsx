@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Moon, Sun, Command, ChartColumn, Cpu, Map, Settings } from "lucide-react";
+import { Bell, Moon, Sun, Command, ChartColumn, Cpu, Map, Settings, GitBranch } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useEffectiveChatRuntime } from "@/hooks/useRuntimeProfiles";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { NotificationsDialog } from "./NotificationsDialog";
 import { MetricsDialog, type AggregateProjectTotals } from "./MetricsDialog";
 import { RoadmapDialog } from "./RoadmapDialog";
 import { GlobalSettingsDialog } from "./GlobalSettingsDialog";
+import { GitPanel } from "@/components/project/GitPanel";
 
 export interface RoadmapImportResult {
   roadmapAlias: string;
@@ -66,6 +67,7 @@ export function Header({
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [roadmapOpen, setRoadmapOpen] = useState(false);
   const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const isCompact = density === "compact";
   const currentRuntimeLabel = !selectedProject
     ? "No project"
@@ -166,6 +168,20 @@ export function Header({
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setGitPanelOpen((v) => !v)}
+            disabled={!selectedProject}
+            className={cn(
+              "gap-1 font-mono text-3xs",
+              gitPanelOpen && "border-primary/70 bg-primary/10",
+            )}
+            aria-label="Git panel"
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">GIT</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setRoadmapOpen((v) => !v)}
             disabled={!selectedProject}
             className="gap-1 font-mono text-3xs"
@@ -252,6 +268,7 @@ export function Header({
         onOpenChange={setGlobalSettingsOpen}
         projectId={selectedProject?.id ?? null}
       />
+      <GitPanel open={gitPanelOpen} onOpenChange={setGitPanelOpen} project={selectedProject} />
     </header>
   );
 }

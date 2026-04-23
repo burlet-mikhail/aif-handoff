@@ -1,7 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import { useOutsideClick } from "@/hooks/useOutsideClick";
 import { useQuery } from "@tanstack/react-query";
-import { FolderOpen, Plus, ChevronDown, Pencil, Trash2, Plug } from "lucide-react";
+import {
+  FolderOpen,
+  Plus,
+  ChevronDown,
+  Pencil,
+  Trash2,
+  Plug,
+  GitBranch,
+  GitPullRequestArrow,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -23,6 +32,8 @@ import {
 } from "@/hooks/useProjects";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
+import { useGitPull } from "@/hooks/useGitHub";
+import { GitHubImportDialog } from "./GitHubImportDialog";
 import type { Project } from "@aif/shared/browser";
 
 interface Props {
@@ -52,6 +63,8 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
   const [reviewSidecarMaxBudgetUsd, setReviewSidecarMaxBudgetUsd] = useState("");
   const [parallelEnabled, setParallelEnabled] = useState(false);
   const [autoQueueMode, setAutoQueueModeState] = useState(false);
+  const gitPull = useGitPull();
+  const [githubImportOpen, setGithubImportOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
 
   const selected = projects?.find((p) => p.id === selectedId);
@@ -107,6 +120,18 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
     deleteProject.mutate(p.id, {
       onSuccess: () => {
         if (selectedId === p.id) onDeselect();
+      },
+    });
+  };
+
+  const handleGitPull = (p: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    gitPull.mutate(p.rootPath, {
+      onSuccess: (result) => {
+        toast(result.output || "Already up to date", "success", 5000);
+      },
+      onError: (err) => {
+        toast(err instanceof Error ? err.message : "Git pull failed", "error", 8000);
       },
     });
   };
@@ -239,6 +264,16 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 border-0 opacity-0 group-hover:opacity-70 hover:!opacity-100"
+                  onClick={(e) => handleGitPull(p, e)}
+                  disabled={gitPull.isPending}
+                  title="Git Pull"
+                >
+                  <GitPullRequestArrow className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 border-0 opacity-0 group-hover:opacity-70 hover:!opacity-100"
                   onClick={(e) => openEdit(p, e)}
                   title="Edit"
                 >
@@ -261,6 +296,16 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
             )}
 
             <div className="mt-1 border-t border-border pt-1">
+              <ListButton
+                onClick={() => {
+                  setGithubImportOpen(true);
+                  setDropdownOpen(false);
+                }}
+                className="gap-2 px-3 py-2"
+              >
+                <GitBranch className="h-3 w-3" />
+                Import from GitHub
+              </ListButton>
               <ListButton onClick={openCreate} className="gap-2 px-3 py-2">
                 <Plus className="h-3 w-3" />
                 New project
@@ -422,6 +467,12 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
           </form>
         </DialogContent>
       </Dialog>
+
+      <GitHubImportDialog
+        open={githubImportOpen}
+        onOpenChange={setGithubImportOpen}
+        onProjectCreated={onSelect}
+      />
     </>
   );
 }

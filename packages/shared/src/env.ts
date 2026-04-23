@@ -129,6 +129,8 @@ const envSchema = z.object({
   TELEGRAM_BOT_API_URL: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_USER_ID: z.string().optional(),
+  GIT_PROJECTS_DIR: z.string().optional(),
+  GH_CLI_PATH: z.string().default("gh"),
 });
 
 export type Env = z.infer<typeof envSchema>;

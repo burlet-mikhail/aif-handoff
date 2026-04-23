@@ -81,6 +81,7 @@ export default defineConfig(async () => {
         "/runtime-profiles": apiTarget,
         "/settings": apiTarget,
         "/health": apiTarget,
+        "/github": apiTarget,
         "/ws": {
           target: `ws://localhost:${API_PORT}`,
           ws: true,

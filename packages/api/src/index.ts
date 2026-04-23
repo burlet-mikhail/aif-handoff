@@ -8,6 +8,7 @@ import { chatRouter } from "./routes/chat.js";
 import { buildSettingsOverview, settingsRoutes } from "./routes/settings.js";
 import { runtimeProfilesRouter } from "./routes/runtimeProfiles.js";
 import { codexAuthRouter } from "./routes/codexAuth.js";
+import { githubRouter } from "./routes/github.js";
 import { setupWebSocket } from "./ws.js";
 import { requestLogger } from "./middleware/logger.js";
 import { startServer } from "./serverBootstrap.js";
@@ -76,6 +77,7 @@ app.route("/tasks", tasksRouter);
 app.route("/chat", chatRouter);
 app.route("/settings", settingsRoutes);
 app.route("/runtime-profiles", runtimeProfilesRouter);
+app.route("/github", githubRouter);
 
 // Codex OAuth login proxy (feature-flagged — see AIF_ENABLE_CODEX_LOGIN_PROXY).
 // The /auth/codex/capabilities endpoint is always registered so the frontend can

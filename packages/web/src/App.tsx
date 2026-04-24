@@ -180,6 +180,7 @@ function AppContent() {
         aggregateTotals={aggregateProjectTotals}
         runtimeProfilesOpen={runtimeSettingsOpen}
         onToggleRuntimeProfiles={() => setRuntimeSettingsOpen((value) => !value)}
+        selectedTaskId={selectedTaskId}
       />
 
       <main className={`mx-auto w-full ${density === "compact" ? "p-4 md:p-5" : "p-6 md:p-8"}`}>

@@ -24,6 +24,7 @@ import { MetricsDialog, type AggregateProjectTotals } from "./MetricsDialog";
 import { RoadmapDialog } from "./RoadmapDialog";
 import { GlobalSettingsDialog } from "./GlobalSettingsDialog";
 import { GitPanel } from "@/components/project/GitPanel";
+import { useTasks } from "@/hooks/useTasks";
 import { RuntimeUsageDialog } from "./RuntimeUsageDialog";
 
 export interface RoadmapImportResult {
@@ -47,6 +48,7 @@ interface Props {
   runtimeProfilesOpen: boolean;
   onToggleRuntimeProfiles: () => void;
   onRoadmapImportComplete?: (result: RoadmapImportResult) => void;
+  selectedTaskId?: string | null;
 }
 
 export function Header({
@@ -63,6 +65,7 @@ export function Header({
   runtimeProfilesOpen,
   onToggleRuntimeProfiles,
   onRoadmapImportComplete,
+  selectedTaskId,
 }: Props) {
   const { theme, toggleTheme } = useTheme();
   const headerRef = useRef<HTMLElement>(null);
@@ -81,6 +84,13 @@ export function Header({
   const [roadmapOpen, setRoadmapOpen] = useState(false);
   const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [gitPanelKey, setGitPanelKey] = useState(0);
+  const { data: headerTasks } = useTasks(selectedProject?.id ?? null);
+  const gitInitialCommitMsg = (() => {
+    if (!selectedTaskId || !headerTasks) return "";
+    const task = headerTasks.find((t) => t.id === selectedTaskId);
+    return task?.title ?? "";
+  })();
   const [runtimeUsageOpen, setRuntimeUsageOpen] = useState(false);
   const usageLimitsEnabled = useUsageLimitsEnabled();
   const isCompact = density === "compact";
@@ -196,7 +206,12 @@ export function Header({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setGitPanelOpen((v) => !v)}
+            onClick={() => {
+              setGitPanelOpen((v) => {
+                if (!v) setGitPanelKey((k) => k + 1);
+                return !v;
+              });
+            }}
             disabled={!selectedProject}
             className={cn(
               "gap-1 font-mono text-3xs",
@@ -310,7 +325,14 @@ export function Header({
         onOpenChange={setGlobalSettingsOpen}
         projectId={selectedProject?.id ?? null}
       />
-      <GitPanel open={gitPanelOpen} onOpenChange={setGitPanelOpen} project={selectedProject} />
+      <GitPanel
+        key={gitPanelKey}
+        open={gitPanelOpen}
+        onOpenChange={setGitPanelOpen}
+        project={selectedProject}
+        selectedTaskId={selectedTaskId}
+        initialCommitMsg={gitInitialCommitMsg}
+      />
       {selectedProject && usageLimitsEnabled && (
         <RuntimeUsageDialog
           open={runtimeUsageOpen}

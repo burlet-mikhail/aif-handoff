@@ -38,15 +38,16 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   project: Project | null;
+  initialCommitMsg?: string;
 }
 
 type Tab = "status" | "log" | "branches";
 
-export function GitPanel({ open, onOpenChange, project }: Props) {
+export function GitPanel({ open, onOpenChange, project, initialCommitMsg }: Props) {
   const rootPath = project?.rootPath ?? null;
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("status");
-  const [commitMsg, setCommitMsg] = useState("");
+  const [commitMsg, setCommitMsg] = useState(initialCommitMsg ?? "");
 
   const {
     data: status,

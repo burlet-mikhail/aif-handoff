@@ -8,7 +8,7 @@ import { chatRouter } from "./routes/chat.js";
 import { buildSettingsOverview, settingsRoutes } from "./routes/settings.js";
 import { runtimeProfilesRouter } from "./routes/runtimeProfiles.js";
 import { codexAuthRouter } from "./routes/codexAuth.js";
-import { githubRouter } from "./routes/github.js";
+import { githubRouter, startGitAutoPull, stopGitAutoPull } from "./routes/github.js";
 import { setupWebSocket, closeAllWebSocketClients } from "./ws.js";
 import { requestLogger } from "./middleware/logger.js";
 import { startServer } from "./serverBootstrap.js";
@@ -108,6 +108,9 @@ const server = startServer({
   logger: log,
 });
 
+// Background git auto-pull for all projects (fetch + pull every 5 min)
+startGitAutoPull();
+
 // ---------------------------------------------------------------------------
 // Graceful shutdown: close HTTP server + terminate WS clients so Ctrl+C /
 // tsx-watch reload frees port 3009 without a second signal. Without this the
@@ -119,6 +122,7 @@ function onShutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info({ signal }, "Shutdown signal received — terminating WS + exiting");
+  stopGitAutoPull();
   closeAllWebSocketClients();
   // Fire-and-forget server.close so any in-flight response can drain, but
   // don't wait for its callback — tsx watch + turbo race on Ctrl+C and

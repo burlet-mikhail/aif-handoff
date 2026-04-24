@@ -4,6 +4,7 @@ import { join, basename } from "node:path";
 import { promisify } from "node:util";
 import { Hono } from "hono";
 import { getEnv, logger } from "@aif/shared";
+import { listProjects } from "@aif/data";
 import { jsonValidator } from "../middleware/zodValidator.js";
 import {
   githubCloneSchema,
@@ -19,6 +20,25 @@ const log = logger("github-route");
 const EXEC_TIMEOUT_MS = 120_000;
 
 export const githubRouter = new Hono();
+
+/** Best-effort pull after checkout — returns output string or null on failure. */
+async function autoPull(rootPath: string, branch: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["pull", "--ff-only"], {
+      cwd: rootPath,
+      timeout: EXEC_TIMEOUT_MS,
+    });
+    const output = stdout.trim();
+    log.debug({ rootPath, branch, output }, "Auto-pull after checkout succeeded");
+    return output || "Already up to date";
+  } catch (err) {
+    log.debug(
+      { rootPath, branch, err },
+      "Auto-pull after checkout skipped (no upstream or conflict)",
+    );
+    return null;
+  }
+}
 
 interface GhRepo {
   nameWithOwner: string;
@@ -300,7 +320,9 @@ githubRouter.post("/checkout", jsonValidator(githubCheckoutSchema), async (c) =>
     });
 
     log.info({ rootPath, branch }, "Branch switched");
-    return c.json({ branch });
+    // Auto-pull after checkout
+    const pulled = await autoPull(rootPath, branch);
+    return c.json({ branch, pulled });
   } catch {
     // If regular checkout fails, try creating a tracking branch from remote
     try {
@@ -310,7 +332,7 @@ githubRouter.post("/checkout", jsonValidator(githubCheckoutSchema), async (c) =>
       });
 
       log.info({ rootPath, branch }, "Created local tracking branch from remote");
-      return c.json({ branch });
+      return c.json({ branch, pulled: null });
     } catch (err2) {
       const message = err2 instanceof Error ? err2.message : String(err2);
       log.error({ rootPath, branch, err: err2 }, "Git checkout failed");
@@ -414,3 +436,53 @@ githubRouter.post("/push", jsonValidator(githubPullSchema), async (c) => {
     return c.json({ error: `Push failed: ${message}` }, 500);
   }
 });
+
+// ── Background auto-pull for all projects ───────────────────
+
+const AUTO_PULL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+let autoPullTimer: ReturnType<typeof setInterval> | null = null;
+
+async function autoPullAllProjects(): Promise<void> {
+  const allProjects = listProjects();
+  for (const project of allProjects) {
+    const rootPath = project.rootPath;
+    if (!rootPath || !existsSync(join(rootPath, ".git"))) continue;
+
+    try {
+      // Fetch first so we know about new remote branches
+      await execFileAsync("git", ["fetch", "--all", "--prune"], {
+        cwd: rootPath,
+        timeout: 60_000,
+      });
+
+      // Then pull current branch (ff-only to avoid conflicts)
+      await execFileAsync("git", ["pull", "--ff-only"], {
+        cwd: rootPath,
+        timeout: 60_000,
+      });
+
+      log.debug({ rootPath, project: project.name }, "Auto-pull succeeded");
+    } catch (err) {
+      // Expected for repos with no upstream or uncommitted changes — just skip
+      log.debug({ rootPath, project: project.name, err }, "Auto-pull skipped");
+    }
+  }
+}
+
+export function startGitAutoPull(): void {
+  if (autoPullTimer) return;
+  log.info({ intervalMs: AUTO_PULL_INTERVAL_MS }, "Starting git auto-pull background job");
+
+  // Run immediately on startup, then repeat
+  void autoPullAllProjects();
+  autoPullTimer = setInterval(() => {
+    void autoPullAllProjects();
+  }, AUTO_PULL_INTERVAL_MS);
+}
+
+export function stopGitAutoPull(): void {
+  if (autoPullTimer) {
+    clearInterval(autoPullTimer);
+    autoPullTimer = null;
+  }
+}

@@ -370,3 +370,47 @@ githubRouter.post("/commit", jsonValidator(githubCommitSchema), async (c) => {
     return c.json({ error: `Commit failed: ${message_}` }, 500);
   }
 });
+
+// POST /github/push — git push (with -u for new branches)
+githubRouter.post("/push", jsonValidator(githubPullSchema), async (c) => {
+  const { rootPath } = c.req.valid("json");
+
+  if (!existsSync(join(rootPath, ".git"))) {
+    return c.json({ error: "Not a git repository" }, 400);
+  }
+
+  try {
+    // Get current branch name
+    const { stdout: branchOut } = await execFileAsync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      { cwd: rootPath, timeout: 10_000 },
+    );
+    const branch = branchOut.trim();
+
+    // Check if upstream is set
+    const hasUpstream = await execFileAsync(
+      "git",
+      ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`],
+      { cwd: rootPath, timeout: 10_000 },
+    ).then(
+      () => true,
+      () => false,
+    );
+
+    const pushArgs = hasUpstream ? ["push"] : ["push", "-u", "origin", branch];
+
+    const { stdout, stderr } = await execFileAsync("git", pushArgs, {
+      cwd: rootPath,
+      timeout: EXEC_TIMEOUT_MS,
+    });
+
+    const output = (stdout + stderr).trim() || "Pushed";
+    log.info({ rootPath, branch, output }, "Git push completed");
+    return c.json({ output, branch });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ rootPath, err }, "Git push failed");
+    return c.json({ error: `Push failed: ${message}` }, 500);
+  }
+});

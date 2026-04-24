@@ -710,6 +710,14 @@ export const api = {
     });
   },
 
+  gitPush(rootPath: string): Promise<{ output: string; branch: string }> {
+    console.debug("[api] POST /github/push", { rootPath });
+    return request("/github/push", {
+      method: "POST",
+      body: JSON.stringify({ rootPath }),
+    });
+  },
+
   gitFetch(rootPath: string): Promise<{ output: string }> {
     console.debug("[api] POST /github/fetch", { rootPath });
     return request("/github/fetch", {

@@ -8,6 +8,7 @@ import {
   FilePlus,
   FileCheck,
   Loader2,
+  Upload,
 } from "lucide-react";
 import {
   Dialog,
@@ -26,6 +27,7 @@ import {
   useGitCheckout,
   useGitCommit,
   useGitPull,
+  useGitPush,
   useGitFetch,
 } from "@/hooks/useGitHub";
 import type { Project } from "@aif/shared/browser";
@@ -57,6 +59,7 @@ export function GitPanel({ open, onOpenChange, project }: Props) {
   );
 
   const gitPull = useGitPull();
+  const gitPush = useGitPush();
   const gitFetch = useGitFetch();
   const gitCheckout = useGitCheckout();
   const gitCommit = useGitCommit();
@@ -92,7 +95,18 @@ export function GitPanel({ open, onOpenChange, project }: Props) {
     );
   };
 
-  const handleCommit = () => {
+  const handlePush = () => {
+    if (!rootPath) return;
+    gitPush.mutate(rootPath, {
+      onSuccess: (r) => {
+        toast(r.output || "Pushed", "success", 5000);
+        refetchStatus();
+      },
+      onError: (err) => toast(err instanceof Error ? err.message : "Push failed", "error", 8000),
+    });
+  };
+
+  const handleCommit = (andPush = false) => {
     if (!rootPath || !commitMsg.trim()) return;
     gitCommit.mutate(
       { rootPath, message: commitMsg.trim() },
@@ -100,6 +114,16 @@ export function GitPanel({ open, onOpenChange, project }: Props) {
         onSuccess: (r) => {
           toast(`Committed ${r.hash}`, "success");
           setCommitMsg("");
+          if (andPush) {
+            gitPush.mutate(rootPath, {
+              onSuccess: (pr) => {
+                toast(pr.output || "Pushed", "success", 5000);
+                refetchStatus();
+              },
+              onError: (err) =>
+                toast(err instanceof Error ? err.message : "Push failed", "error", 8000),
+            });
+          }
         },
         onError: (err) =>
           toast(err instanceof Error ? err.message : "Commit failed", "error", 8000),
@@ -204,29 +228,45 @@ export function GitPanel({ open, onOpenChange, project }: Props) {
 
                 {/* Commit form */}
                 {totalChanges > 0 && (
-                  <div className="flex max-sm:flex-col gap-2">
+                  <div className="space-y-2">
                     <Input
                       placeholder="Commit message..."
                       value={commitMsg}
                       onChange={(e) => setCommitMsg(e.target.value)}
                       className="text-xs"
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && commitMsg.trim()) handleCommit();
+                        if (e.key === "Enter" && commitMsg.trim()) handleCommit(false);
                       }}
                     />
-                    <Button
-                      size="sm"
-                      onClick={handleCommit}
-                      disabled={!commitMsg.trim() || gitCommit.isPending}
-                      className="gap-1"
-                    >
-                      {gitCommit.isPending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <GitCommitHorizontal className="h-3 w-3" />
-                      )}
-                      Commit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCommit(false)}
+                        disabled={!commitMsg.trim() || gitCommit.isPending || gitPush.isPending}
+                        className="gap-1"
+                      >
+                        {gitCommit.isPending && !gitPush.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <GitCommitHorizontal className="h-3 w-3" />
+                        )}
+                        Commit
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleCommit(true)}
+                        disabled={!commitMsg.trim() || gitCommit.isPending || gitPush.isPending}
+                        className="gap-1"
+                      >
+                        {gitCommit.isPending || gitPush.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Upload className="h-3 w-3" />
+                        )}
+                        Commit & Push
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -245,6 +285,23 @@ export function GitPanel({ open, onOpenChange, project }: Props) {
                       <RefreshCw className="h-3 w-3" />
                     )}
                     Pull
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePush}
+                    disabled={gitPush.isPending || (status?.ahead ?? 0) === 0}
+                    className="gap-1 text-xs"
+                  >
+                    {gitPush.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Upload className="h-3 w-3" />
+                    )}
+                    Push
+                    {(status?.ahead ?? 0) > 0 && (
+                      <span className="text-2xs text-green-500">{status?.ahead}</span>
+                    )}
                   </Button>
                   <Button
                     variant="outline"

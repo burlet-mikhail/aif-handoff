@@ -33,7 +33,11 @@ RUN npx turbo build
 # ---- API ----
 FROM base AS api
 ENV NODE_ENV=production HOME=/home/node
-RUN apt-get update && apt-get install -y --no-install-recommends gosu git && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends gosu git curl \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/* \
     && npm i -g @anthropic-ai/claude-code @openai/codex
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/packages/shared ./packages/shared
@@ -68,7 +72,11 @@ EXPOSE 80 443
 # ---- Agent ----
 FROM base AS agent
 ENV NODE_ENV=production HOME=/home/node
-RUN apt-get update && apt-get install -y --no-install-recommends gosu git curl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends gosu git curl \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/* \
     && npm i -g @anthropic-ai/claude-code @openai/codex
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/packages/shared ./packages/shared

@@ -303,7 +303,7 @@ export function buildClaudeQueryOptions(
       filteredEnvCount: resolvedEnvironment.filteredCount,
       droppedDisallowedPrefixCount: resolvedEnvironment.droppedDisallowedPrefixKeys.length,
     },
-    "DEBUG [runtime:claude] Built Claude runtime environment from curated allowlist",
+    "[runtime:claude] Built Claude runtime environment from curated allowlist",
   );
   if (resolvedEnvironment.droppedDisallowedPrefixKeys.length > 0) {
     logger?.warn?.(
@@ -324,7 +324,7 @@ export function buildClaudeQueryOptions(
       incomingEffort: rawEffort ?? null,
       normalizedEffort,
     },
-    "DEBUG [runtime:claude] Normalized effort option for Claude query",
+    "[runtime:claude] Normalized effort option for Claude query",
   );
   if (rawEffort != null && normalizedEffort == null) {
     logger?.warn?.(

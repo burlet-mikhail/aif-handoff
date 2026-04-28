@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   type KeyboardEvent as ReactKeyboardEvent,
+  type DragEvent as ReactDragEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { useOutsideClick } from "@/hooks/useOutsideClick";
@@ -31,13 +32,21 @@ import { useChatSessions } from "@/hooks/useChatSessions";
 import { useTask } from "@/hooks/useTasks";
 import { useEffectiveChatRuntime, useRuntimeProfiles } from "@/hooks/useRuntimeProfiles";
 import { useUsageLimitsEnabled } from "@/hooks/useSettings";
-import { toAttachmentPayload } from "@/components/task/useTaskDetailActions";
+import {
+  toAttachmentPayload,
+  partitionBySize,
+  ATTACHMENT_SIZE_HARD_LIMIT,
+} from "@/components/task/useTaskDetailActions";
 import { getRuntimeLimitDisplay } from "@/lib/runtimeLimits";
 import { formatRuntimeProfileName } from "@/lib/runtimeProfiles";
+import { readDroppedFiles, summarizeAttachments } from "@/lib/attachmentTransfer";
 import { SessionList } from "./SessionList";
 import { MessageBubble } from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import type { ChatAttachment } from "@aif/shared/browser";
+
+export const MAX_CHAT_ATTACHMENTS = 100;
+const CHAT_ATTACHMENT_WARN_AT = 50;
 
 interface ChatPanelProps {
   isOpen: boolean;
@@ -126,11 +135,29 @@ export function ChatPanel({
     void sendMessage(input, files, false);
     setInput("");
     setPendingFiles([]);
+    setOversizeNotice([]);
   };
 
-  const handleFilesSelected = async (fileList: FileList) => {
+  const [oversizeNotice, setOversizeNotice] = useState<string[]>([]);
+
+  const handleFilesSelected = async (input: FileList | File[]) => {
+    const arr = Array.isArray(input) ? input : Array.from(input);
+    const { accepted, rejected } = partitionBySize(arr);
+    if (rejected.length > 0) {
+      console.warn(
+        "[chat] dropping %d files over %d bytes: %s",
+        rejected.length,
+        ATTACHMENT_SIZE_HARD_LIMIT,
+        rejected.map((f) => f.name).join(", "),
+      );
+      setOversizeNotice(rejected.map((f) => f.name));
+    } else {
+      setOversizeNotice([]);
+    }
+    const remaining = MAX_CHAT_ATTACHMENTS - pendingFiles.length;
+    if (remaining <= 0) return;
     const newFiles: ChatAttachment[] = [];
-    for (const file of Array.from(fileList).slice(0, 5 - pendingFiles.length)) {
+    for (const file of accepted.slice(0, remaining)) {
       const payload = await toAttachmentPayload(file);
       newFiles.push({
         name: payload.name,
@@ -139,7 +166,29 @@ export function ChatPanel({
         content: payload.content,
       });
     }
-    setPendingFiles((prev) => [...prev, ...newFiles].slice(0, 5));
+    setPendingFiles((prev) => [...prev, ...newFiles].slice(0, MAX_CHAT_ATTACHMENTS));
+  };
+
+  const [composerDragOver, setComposerDragOver] = useState(false);
+
+  const handleComposerDragOver = (e: ReactDragEvent) => {
+    if (!Array.from(e.dataTransfer.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    setComposerDragOver(true);
+  };
+
+  const handleComposerDragLeave = (e: ReactDragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setComposerDragOver(false);
+  };
+
+  const handleComposerDrop = (e: ReactDragEvent) => {
+    if (!Array.from(e.dataTransfer.types ?? []).includes("Files")) return;
+    e.preventDefault();
+    setComposerDragOver(false);
+    void readDroppedFiles(e.dataTransfer).then((files) => {
+      if (files.length > 0) void handleFilesSelected(files);
+    });
   };
 
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -447,7 +496,15 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border p-3">
+      <div
+        className={cn(
+          "border-t p-3 transition-colors",
+          composerDragOver ? "border-primary bg-primary/5" : "border-border",
+        )}
+        onDragOver={handleComposerDragOver}
+        onDragLeave={handleComposerDragLeave}
+        onDrop={handleComposerDrop}
+      >
         <label className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
           <Checkbox
             checked={explore}
@@ -457,15 +514,41 @@ export function ChatPanel({
           <span title="Brainstorm, research or explore a topic">Explore</span>
         </label>
         {pendingFiles.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1">
-            {pendingFiles.map((f, i) => (
-              <AttachmentChip
-                key={i}
-                name={f.name}
-                onRemove={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
-              />
-            ))}
-          </div>
+          <>
+            <div className="mb-1.5 flex flex-wrap gap-1">
+              {pendingFiles.map((f, i) => (
+                <AttachmentChip
+                  key={i}
+                  name={f.name}
+                  onRemove={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                />
+              ))}
+            </div>
+            <p className="mb-1 text-2xs text-muted-foreground">
+              {summarizeAttachments(pendingFiles)}
+              {pendingFiles.length >= CHAT_ATTACHMENT_WARN_AT &&
+                pendingFiles.length < MAX_CHAT_ATTACHMENTS && (
+                  <span className="ml-1 text-amber-600 dark:text-amber-400">
+                    · large batch may slow the agent
+                  </span>
+                )}
+              {pendingFiles.length >= MAX_CHAT_ATTACHMENTS && (
+                <span className="ml-1 text-amber-600 dark:text-amber-400">
+                  · cap reached ({MAX_CHAT_ATTACHMENTS})
+                </span>
+              )}
+            </p>
+          </>
+        )}
+        {composerDragOver && (
+          <p className="mb-1 text-2xs text-primary">Drop files or folders to attach (recursive).</p>
+        )}
+        {oversizeNotice.length > 0 && (
+          <p className="mb-1 text-2xs text-amber-600 dark:text-amber-400">
+            Skipped {oversizeNotice.length} file{oversizeNotice.length === 1 ? "" : "s"} over{" "}
+            {ATTACHMENT_SIZE_HARD_LIMIT / 1_000_000}MB: {oversizeNotice.slice(0, 3).join(", ")}
+            {oversizeNotice.length > 3 ? `, …` : ""}
+          </p>
         )}
         <div className="flex items-end gap-2">
           <input
@@ -484,7 +567,7 @@ export function ChatPanel({
             variant="ghost"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isStreaming || pendingFiles.length >= 5}
+            disabled={isStreaming || pendingFiles.length >= MAX_CHAT_ATTACHMENTS}
             className="h-9 w-9 shrink-0 border-0 text-muted-foreground"
             aria-label="Attach file"
           >
@@ -497,7 +580,8 @@ export function ChatPanel({
             onKeyDown={handleKeyDown}
             placeholder="Ask a question..."
             rows={1}
-            className="max-h-32 min-h-[2.25rem] flex-1 resize-none bg-secondary/50"
+            containerClassName="flex-1"
+            className="max-h-32 min-h-[2.25rem] resize-none bg-secondary/50"
           />
           {isStreaming ? (
             <Button

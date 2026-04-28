@@ -150,7 +150,7 @@ function buildCodexOptions(input: RuntimeRunInput, logger?: CodexSdkLogger): Cod
       filteredEnvCount: curatedEnv.filteredCount,
       droppedDisallowedPrefixCount: curatedEnv.droppedDisallowedPrefixKeys.length,
     },
-    "DEBUG [runtime:codex] Built Codex SDK environment from curated allowlist",
+    "[runtime:codex] Built Codex SDK environment from curated allowlist",
   );
   if (curatedEnv.droppedDisallowedPrefixKeys.length > 0) {
     logger?.warn?.(

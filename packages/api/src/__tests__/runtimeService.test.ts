@@ -201,6 +201,7 @@ describe("runtime service", () => {
     mockRegistryResolveRuntime.mockReturnValue(adapter);
 
     mockFindProjectById.mockReturnValue({ id: "proj-1", rootPath: "/tmp/project" });
+    mockFindTaskById.mockReturnValue(null);
     mockGetAppDefaultRuntimeProfileId.mockReturnValue(null);
     mockResolveEffectiveRuntimeProfile.mockReturnValue({
       source: "project_default",
@@ -565,6 +566,39 @@ describe("runtime service", () => {
     );
   });
 
+  it("passes Handoff branch contract in one-shot runtime environment", async () => {
+    const runtimeService = await loadRuntimeService();
+    const adapter = createAdapter();
+    mockRegistryResolveRuntime.mockReturnValue(adapter);
+    mockFindTaskById.mockReturnValue({
+      id: "task-branch",
+      projectId: "proj-1",
+      branchName: "feature/task-branch",
+    });
+
+    await runtimeService.runApiRuntimeOneShot({
+      projectId: "proj-1",
+      projectRoot: "/tmp/project",
+      taskId: "task-branch",
+      prompt: "commit",
+      workflowKind: "commit",
+      usageContext: { source: "test" },
+    });
+
+    expect(adapter.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution: expect.objectContaining({
+          environment: {
+            HANDOFF_MODE: "1",
+            HANDOFF_TASK_ID: "task-branch",
+            HANDOFF_BRANCH_PREPARED: "1",
+            HANDOFF_BRANCH_NAME: "feature/task-branch",
+          },
+        }),
+      }),
+    );
+  });
+
   it("uses app-level task defaults when resolving the light model", async () => {
     const runtimeService = await loadRuntimeService();
     mockGetAppDefaultRuntimeProfileId.mockReturnValue("app-task-default");
@@ -857,6 +891,25 @@ describe("runtime service", () => {
       payload: {
         projectId: "proj-2",
         runtimeProfileId: "profile-global",
+        taskId: null,
+      },
+    });
+  });
+
+  it("exposes an explicit project-level runtime-limit broadcast helper", async () => {
+    const runtimeService = await loadRuntimeService();
+
+    runtimeService.notifyRuntimeLimitProjectUpdate({
+      projectId: "proj-1",
+      runtimeProfileId: "profile-1",
+      signature: "sig-1",
+    });
+
+    expect(mockBroadcast).toHaveBeenCalledWith({
+      type: "project:runtime_limit_updated",
+      payload: {
+        projectId: "proj-1",
+        runtimeProfileId: "profile-1",
         taskId: null,
       },
     });

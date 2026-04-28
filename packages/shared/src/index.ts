@@ -8,6 +8,11 @@ export {
   chatSessions,
   chatMessages,
   usageEvents,
+  codexSessions,
+  codexSessionFiles,
+  codexLimitHeads,
+  codexLimitHistory,
+  codexIndexCursors,
 } from "./schema.js";
 export type {
   ProjectRow,
@@ -26,6 +31,16 @@ export type {
   NewChatMessageRow,
   UsageEventRow,
   NewUsageEventRow,
+  CodexSessionRow,
+  NewCodexSessionRow,
+  CodexSessionFileRow,
+  NewCodexSessionFileRow,
+  CodexLimitHeadRow,
+  NewCodexLimitHeadRow,
+  CodexLimitHistoryRow,
+  NewCodexLimitHistoryRow,
+  CodexIndexCursorRow,
+  NewCodexIndexCursorRow,
 } from "./schema.js";
 
 // Types
@@ -115,6 +130,28 @@ export { persistTaskPlan } from "./taskPlan.js";
 
 // Path validation
 export { validateProjectRootPath } from "./pathValidation.js";
+
+// Git/worktree isolation utilities (Node-only)
+export {
+  BranchIsolationError,
+  assertCurrentBranch,
+  assertWorkingTreeClean,
+  branchExists,
+  buildBranchName,
+  describeDirtyWorkingTree,
+  ensureFeatureBranch,
+  getCurrentBranch,
+  isBranchIsolationError,
+  isGitRepo,
+  projectUsesSharedBranchIsolation,
+  restorePersistedBranch,
+  slugifyTitle,
+  validateBranchName,
+  workingTreeClean,
+  type EnsureFeatureBranchInput,
+  type EnsureFeatureBranchResult,
+  type RestorePersistedBranchInput,
+} from "./gitIsolation.js";
 
 // Attachment utilities
 export {

@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { appSettings, projects, runtimeProfiles, tasks, usageEvents } from "@aif/shared";
+import {
+  appSettings,
+  projects,
+  resetEnvCache,
+  runtimeProfiles,
+  tasks,
+  usageEvents,
+} from "@aif/shared";
 import { createTestDb } from "@aif/shared/server";
 
 const testDb = { current: createTestDb() };
@@ -39,6 +46,9 @@ const {
   resolveEffectiveRuntimeProfile,
   toTaskResponse,
   evaluateRuntimeLimitGate,
+  upsertCodexLimitHeads,
+  listCodexLimitHeadsForOverlay,
+  findPreferredCodexLimitHeadForOverlay,
 } = dataModule;
 
 const dataModuleWithAppSettings = dataModule as unknown as {
@@ -104,9 +114,22 @@ function makeLimitSnapshot() {
 }
 
 describe("runtime profiles data layer", () => {
+  const previousUsageLimitsEnabled = process.env.AIF_USAGE_LIMITS_ENABLED;
+
   beforeEach(() => {
+    process.env.AIF_USAGE_LIMITS_ENABLED = "true";
+    resetEnvCache();
     testDb.current = createTestDb();
     seedProject();
+  });
+
+  afterEach(() => {
+    if (previousUsageLimitsEnabled == null) {
+      delete process.env.AIF_USAGE_LIMITS_ENABLED;
+    } else {
+      process.env.AIF_USAGE_LIMITS_ENABLED = previousUsageLimitsEnabled;
+    }
+    resetEnvCache();
   });
 
   it("creates and maps runtime profiles", () => {
@@ -289,6 +312,70 @@ describe("runtime profiles data layer", () => {
     const decision = evaluateRuntimeLimitGate(toRuntimeProfileResponse(findRuntimeProfileById(profile!.id)!), 0);
     expect(decision.blocked).toBe(false);
     expect(decision.reason).toBe("none");
+  });
+
+  it("does not write, clear, or gate persisted snapshots when usage limits are disabled", () => {
+    const nowMs = Date.parse("2026-04-17T10:00:00.000Z");
+    const profile = createRuntimeProfile({
+      projectId: "proj-1",
+      name: "Disabled usage limits profile",
+      runtimeId: "codex",
+      providerId: "openai",
+    });
+
+    process.env.AIF_USAGE_LIMITS_ENABLED = "false";
+    resetEnvCache();
+
+    const skippedPersist = persistRuntimeProfileLimitSnapshot(
+      profile!.id,
+      {
+        ...makeLimitSnapshot(),
+        status: "blocked",
+        profileId: profile!.id,
+        resetAt: "2026-04-17T15:00:00.000Z",
+      },
+      "2026-04-17T10:00:05.000Z",
+    );
+    const skippedPersistMapped = toRuntimeProfileResponse(skippedPersist!);
+    expect(skippedPersistMapped.runtimeLimitSnapshot).toBeNull();
+    expect(skippedPersistMapped.runtimeLimitUpdatedAt).toBeNull();
+
+    process.env.AIF_USAGE_LIMITS_ENABLED = "true";
+    resetEnvCache();
+
+    const oldSnapshot = {
+      ...makeLimitSnapshot(),
+      status: "blocked" as const,
+      profileId: profile!.id,
+      resetAt: "2026-04-17T15:00:00.000Z",
+    };
+    persistRuntimeProfileLimitSnapshot(
+      profile!.id,
+      oldSnapshot,
+      "2026-04-17T10:00:05.000Z",
+    );
+
+    process.env.AIF_USAGE_LIMITS_ENABLED = "false";
+    resetEnvCache();
+
+    const skippedClear = clearRuntimeProfileLimitSnapshot(profile!.id, "2026-04-17T11:00:00.000Z");
+    const skippedClearMapped = toRuntimeProfileResponse(skippedClear!);
+    expect(skippedClearMapped.runtimeLimitSnapshot).toEqual(oldSnapshot);
+    expect(skippedClearMapped.runtimeLimitUpdatedAt).toBe("2026-04-17T10:00:05.000Z");
+
+    const decision = evaluateRuntimeLimitGate(
+      toRuntimeProfileResponse(findRuntimeProfileById(profile!.id)!),
+      nowMs,
+    );
+    expect(decision).toEqual({
+      blocked: false,
+      reason: "none",
+      runtimeProfileId: profile!.id,
+      snapshot: null,
+      futureHint: expect.objectContaining({ source: "none", isFuture: false }),
+      violatedWindow: null,
+      signature: null,
+    });
   });
 
   it("proactively gates provider-blocked snapshots with retryAfterSeconds even without resetAt", () => {
@@ -901,6 +988,123 @@ describe("runtime profiles data layer", () => {
       defaultReviewRuntimeProfileId: null,
       defaultChatRuntimeProfileId: null,
     });
+  });
+
+  it("lists Codex limit-head overlays with project scope preferred over global", () => {
+    upsertCodexLimitHeads([
+      {
+        accountFingerprint: "acct-1",
+        projectRoot: null,
+        limitId: "codex",
+        snapshot: {
+          ...makeLimitSnapshot(),
+          runtimeId: "codex",
+          providerId: "openai",
+          checkedAt: "2026-04-23T10:00:00.000Z",
+        },
+        observedAt: "2026-04-23T10:00:00.000Z",
+      },
+      {
+        accountFingerprint: "acct-1",
+        projectRoot: "/tmp/test",
+        limitId: "codex",
+        snapshot: {
+          ...makeLimitSnapshot(),
+          runtimeId: "codex",
+          providerId: "openai",
+          checkedAt: "2026-04-23T12:00:00.000Z",
+        },
+        observedAt: "2026-04-23T12:00:00.000Z",
+      },
+    ]);
+
+    const rows = listCodexLimitHeadsForOverlay({
+      accountFingerprint: "acct-1",
+      projectRoot: "/tmp/test",
+      includeGlobalFallback: true,
+      limitId: "codex",
+      limit: 5,
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].projectRoot).toBe("/tmp/test");
+    expect(rows[1].projectRoot).toBeNull();
+    expect(rows[0].snapshot?.providerId).toBe("openai");
+  });
+
+  it("normalizes Codex project roots for limit-head overlay lookups", () => {
+    upsertCodexLimitHeads([
+      {
+        accountFingerprint: "acct-normalized",
+        projectRoot: "C:\\Projects\\AIF\\",
+        limitId: "codex",
+        snapshot: {
+          ...makeLimitSnapshot(),
+          runtimeId: "codex",
+          providerId: "openai",
+          checkedAt: "2026-04-23T12:00:00.000Z",
+        },
+        observedAt: "2026-04-23T12:00:00.000Z",
+      },
+    ]);
+
+    const rows = listCodexLimitHeadsForOverlay({
+      accountFingerprint: "acct-normalized",
+      projectRoot: "c:/projects/aif",
+      includeGlobalFallback: false,
+      limitId: "codex",
+      limit: 5,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].projectRoot).toBe("c:/projects/aif");
+  });
+
+  it("finds preferred Codex overlay head and supports disabling global fallback", () => {
+    upsertCodexLimitHeads([
+      {
+        accountFingerprint: "acct-2",
+        projectRoot: null,
+        limitId: "codex",
+        snapshot: {
+          ...makeLimitSnapshot(),
+          runtimeId: "codex",
+          providerId: "openai",
+          checkedAt: "2026-04-23T09:00:00.000Z",
+        },
+        observedAt: "2026-04-23T09:00:00.000Z",
+      },
+      {
+        accountFingerprint: "acct-2",
+        projectRoot: "/tmp/test",
+        limitId: "codex",
+        snapshot: {
+          ...makeLimitSnapshot(),
+          runtimeId: "codex",
+          providerId: "openai",
+          checkedAt: "2026-04-23T11:00:00.000Z",
+        },
+        observedAt: "2026-04-23T11:00:00.000Z",
+      },
+    ]);
+
+    const preferred = findPreferredCodexLimitHeadForOverlay({
+      accountFingerprint: "acct-2",
+      projectRoot: "/tmp/test",
+      includeGlobalFallback: true,
+      limitId: "codex",
+    });
+    expect(preferred).not.toBeNull();
+    expect(preferred?.projectRoot).toBe("/tmp/test");
+
+    const strictRows = listCodexLimitHeadsForOverlay({
+      accountFingerprint: "acct-2",
+      projectRoot: "/tmp/test",
+      includeGlobalFallback: false,
+      limitId: "codex",
+    });
+    expect(strictRows).toHaveLength(1);
+    expect(strictRows[0].projectRoot).toBe("/tmp/test");
   });
 
   it("resolves task override first", () => {

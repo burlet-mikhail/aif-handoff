@@ -986,7 +986,7 @@ export async function runCodexCli(
       blockedEnvCount: curatedEnv.blockedCount,
       droppedDisallowedPrefixCount: curatedEnv.droppedDisallowedPrefixKeys.length,
     },
-    "DEBUG [runtime:codex] Built Codex CLI environment from curated allowlist",
+    "[runtime:codex] Built Codex CLI environment from curated allowlist",
   );
   if (curatedEnv.droppedDisallowedPrefixKeys.length > 0) {
     logger?.warn?.(

@@ -82,27 +82,18 @@ For Codex/OpenAI-compatible profiles, configure `OPENAI_API_KEY` and optionally 
 
 #### Codex OAuth in Docker (without `OPENAI_API_KEY`)
 
-The `codex login` CLI binds its OAuth callback to `127.0.0.1:1455` inside the
-container, which is unreachable from the host browser. The dev compose wires up
-a small in-container broker that bridges this gap and exposes a guided UI in
+The dev compose wires up a small in-container broker that runs
+`codex login --device-auth` and exposes a guided UI in
 **Settings → Runtime profile → Codex**:
 
-1. Click **Start Codex login**. The broker spawns `codex login` and returns the
-   authorization URL.
-2. Open the URL in your browser and authorize the app.
-3. The browser redirects to `http://localhost:1455/?code=…&state=…` and shows a
-   connection-refused page — this is expected. Copy the entire URL from the
-   address bar.
-4. Paste it back into the wizard. The broker completes the callback from inside
-   the container, and `codex login` writes `~/.codex/auth.json` to the
-   persistent `codex-auth` volume.
-5. Run `docker compose restart agent` to pick up the credentials.
-
-**Fallback CLI helper** — if the UI is unavailable, run the callback directly:
-
-```bash
-docker compose exec agent aif-codex-callback "http://localhost:1455/?code=…&state=…"
-```
+1. Click **Start Codex login**. The broker spawns the CLI and reads back a
+   verification URL plus a one-time code.
+2. Open the verification page in your browser, enter the code, and complete
+   ChatGPT sign-in.
+3. The CLI exits 0 once ChatGPT confirms and writes `~/.codex/auth.json` to
+   the persistent `codex-auth` volume. The wizard flips to success
+   automatically (status polled every second).
+4. Run `docker compose restart agent` to pick up the credentials.
 
 **Production note:** the broker is **dev-only**. `docker-compose.production.yml`
 sets `AIF_ENABLE_CODEX_LOGIN_PROXY=false`. For production, configure

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnDev } from "./lib/spawn-dev.mjs";
+import { assertWorkspacePackagesResolveToSource } from "./lib/workspace-resolution-guard.mjs";
 
 // Minimal root .env loader for local dev scripts. Supports single-line KEY=VALUE pairs only.
 function parseEnvFile(path) {
@@ -61,6 +62,7 @@ function resolveMcpPort(value) {
 }
 
 loadRootEnv();
+assertWorkspacePackagesResolveToSource();
 
 const filters = ["@aif/api", "@aif/web", "@aif/agent"];
 const mcpPort = resolveMcpPort(process.env.MCP_PORT);

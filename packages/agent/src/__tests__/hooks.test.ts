@@ -70,7 +70,6 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     AIF_USAGE_LIMITS_ENABLED: false,
     AIF_ENABLE_CODEX_LOGIN_PROXY: false,
     AIF_CODEX_LOGIN_BROKER_PORT: 3010,
-    AIF_CODEX_LOGIN_LOOPBACK_PORT: 1455,
     AGENT_INTERNAL_URL: "http://agent:3010",
     ...overrides,
   };

@@ -341,6 +341,7 @@ Used by API/agent services to trigger project-scoped WebSocket broadcasts withou
 ## Runtime Profiles
 
 Runtime profiles carry non-secret transport/model config plus the latest persisted runtime-limit snapshot used by API, agent, and UI surfaces.
+For local Codex runtimes (`runtimeId=codex` with `sdk`/`cli` transport), `/runtime-profiles` and `/runtime-profiles/effective/*` now read limit overlays from the SQLite Codex index (`codex_limit_heads`) maintained by the background API indexer. Request handlers do not perform direct `~/.codex/sessions` scans.
 
 ### List Runtime Profiles
 
@@ -367,6 +368,7 @@ GET /runtime-profiles/effective/chat/:projectId
 ```
 
 Both responses include the resolved `profile` object (or `null`) plus source metadata. When a profile is present, its payload includes `runtimeLimitSnapshot` and `runtimeLimitUpdatedAt`.
+If no indexed Codex head is available for the resolved account/project scope, the response falls back to the persisted profile snapshot.
 
 ### Runtime Limit Snapshot Shape
 
@@ -672,6 +674,7 @@ GET /runtime-profiles
 
 `scope=project` requires `projectId`. `scope=global` returns only reusable profiles (`projectId = null`).
 `scope=visible` is the default when omitted.
+For local Codex profiles, this endpoint overlays the response from indexed Codex limit heads in SQLite instead of scanning `~/.codex/sessions` during request handling.
 
 ### Effective Runtime Resolution
 
@@ -688,6 +691,121 @@ These endpoints return the effective runtime profile plus the resolution source.
 4. environment fallback
 
 Planning and review follow the same pattern but use their dedicated defaults before inheriting from the task default at the same scope.
+
+---
+
+## Codex OAuth Login (Docker)
+
+Wraps `codex login --device-auth` running inside the agent container so the
+host browser can complete the device-code flow. All `/auth/codex/login/*`
+mutating endpoints are gated behind `AIF_ENABLE_CODEX_LOGIN_PROXY=true`. When
+the flag is `false` only `/auth/codex/capabilities` is mounted; the others
+return `404`. See [Providers](providers.md#codex-oauth-login-in-docker-broker)
+for the full design.
+
+### Capabilities
+
+```
+GET /auth/codex/capabilities
+```
+
+**Response:** `200 OK`
+
+```json
+{ "loginProxyEnabled": true }
+```
+
+### Start Login
+
+```
+POST /auth/codex/login/start
+```
+
+Spawns `codex login --device-auth` in the agent container and parses the
+verification URL plus one-time code.
+
+**Response:** `200 OK`
+
+```json
+{
+  "sessionId": "9f3c1a8e-...",
+  "verificationUrl": "https://auth.openai.com/codex/device",
+  "userCode": "ABCD-12345",
+  "startedAt": "2026-04-27T16:30:00.000Z"
+}
+```
+
+`409 Conflict` when a session is already active — the body still carries
+`{sessionId, verificationUrl, userCode}` so the client can adopt it.
+`500` on spawn failure or device-auth parse timeout.
+`502` when the API cannot reach the broker over the docker network.
+
+### Status
+
+```
+GET /auth/codex/login/status
+```
+
+**Response:** `200 OK`
+
+```json
+{
+  "active": true,
+  "sessionId": "9f3c1a8e-...",
+  "verificationUrl": "https://auth.openai.com/codex/device",
+  "userCode": "ABCD-12345",
+  "startedAt": "2026-04-27T16:30:00.000Z"
+}
+```
+
+When no session is active the response carries the **terminal result of the
+last run** so the client can distinguish success from failure:
+
+```json
+{
+  "active": false,
+  "lastResult": {
+    "ok": true,
+    "sessionId": "9f3c1a8e-...",
+    "reason": "success",
+    "exitCode": 0,
+    "signal": null,
+    "finishedAt": "2026-04-27T16:32:14.000Z"
+  }
+}
+```
+
+`reason` is one of `success`, `exit_nonzero`, `signal`, `timeout`,
+`parse_timeout`, `cancel`, `spawn_failed`. The UI **must** gate the success
+transition on `lastResult.ok === true`. If no session has ever run the field
+is omitted.
+
+| Reason          | Meaning                                                                            |
+| --------------- | ---------------------------------------------------------------------------------- |
+| `success`       | Codex CLI exited with code `0` and no signal — `~/.codex/auth.json` was written.   |
+| `exit_nonzero`  | Codex CLI exited with a non-zero status code (network/TLS failure, server reject). |
+| `signal`        | Codex CLI was killed by a signal (e.g. `SIGKILL`) before completing login.         |
+| `timeout`       | The 5-minute wizard session expired before the user completed the browser flow.    |
+| `parse_timeout` | The CLI did not print a verification URL + code within 15 seconds of spawn.        |
+| `cancel`        | The user pressed Cancel; broker SIGTERMed the child.                               |
+| `spawn_failed`  | The codex binary could not be spawned (missing/unexecutable, ENOENT/EACCES).       |
+
+### Cancel
+
+```
+POST /auth/codex/login/cancel
+```
+
+`SIGTERM`s the active child process. Records a terminal result with
+`reason: "cancel"`, `ok: false`.
+
+**Response:** `200 OK`
+
+```json
+{ "ok": true, "cancelled": true, "sessionId": "9f3c1a8e-..." }
+```
+
+`{ ok: true, cancelled: false }` when there was no active session.
 
 ---
 
@@ -759,6 +877,7 @@ DELETE /chat/sessions/:id
 ```
 
 Chat sessions persist the runtime profile chosen when the session starts. This keeps older conversations tied to the runtime they were created with even if the project's current default changes later.
+For local Codex runtimes, session discovery uses the indexed `codex_sessions` read-model. Session detail/message reads resolve `sessionId -> filePath` from the same index before compatibility fallback to runtime-adapter lookups.
 
 `POST` and `PUT` accept `runtimeProfileId` as an optional field. The value must be either a global profile or one owned by the same project.
 

@@ -174,6 +174,8 @@ data/                    # SQLite database files (gitignored)
 - **Pencil sync required for new components.** If a new UI component is genuinely needed, its design must be synced with the Pencil design system (`.pen` files) using the `pencil` MCP tools (`batch_design`, `get_guidelines`). Never add a visual component to the codebase without a corresponding Pencil representation.
 - **UI primitives live in `packages/web/src/components/ui/`.** Domain-specific compositions belong in their feature folder (e.g. `components/task/`, `components/kanban/`).
 - **No expensive CSS properties.** Never use `box-shadow`, `backdrop-filter`, `filter: blur()`, `text-shadow`, or other GPU/paint-heavy CSS in components. These trigger costly compositing and repaint cycles, especially on low-end devices and during scroll/animation. Use `border`, `outline`, `opacity`, or solid `background-color` as lightweight alternatives.
+- **Theme color pairing → see [`docs/ui-theme-colors.md`](docs/ui-theme-colors.md).** Pairing rules between semantic tokens and fixed-color backgrounds, the verification checklist (light + dark), and known cases live there. Read it before touching color classes on any UI.
+- **If you fix a theme-readability bug, append to `docs/ui-theme-colors.md` → "Learnings".** Whenever a change adjusts colors to fix contrast/legibility in a theme (light or dark), add a one- or two-line dated entry with the symptom, cause, and fix. This keeps the doc the single living memory of theme-pairing pitfalls so the same class of bug does not recur.
 
 ## Docker Sync Rule
 

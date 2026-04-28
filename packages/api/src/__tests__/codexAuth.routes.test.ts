@@ -23,17 +23,23 @@ describe("codexAuthRouter", () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock.mockResolvedValueOnce({
       status: 200,
-      json: vi.fn().mockResolvedValue({ connected: true }),
+      json: vi.fn().mockResolvedValue({
+        active: true,
+        sessionId: "s1",
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "ABCD-12345",
+        startedAt: "2026-04-27T00:00:00.000Z",
+      }),
     } as unknown as Response);
 
     const res = await app.request("/codex-auth/login/status");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ connected: true });
+    const body = (await res.json()) as { verificationUrl: string; userCode: string };
+    expect(body.verificationUrl).toBe("https://auth.openai.com/codex/device");
+    expect(body.userCode).toBe("ABCD-12345");
     expect(fetchMock).toHaveBeenCalledWith("http://agent:3010/codex/login/status", {
       method: "GET",
-      headers: undefined,
-      body: undefined,
     });
   });
 
@@ -46,37 +52,44 @@ describe("codexAuthRouter", () => {
 
     expect(res.status).toBe(502);
     await expect(res.json()).resolves.toEqual(
-      expect.objectContaining({
-        error: "broker_unreachable",
-      }),
+      expect.objectContaining({ error: "broker_unreachable" }),
     );
   });
 
-  it("forwards callback payload to broker and tolerates non-JSON broker body", async () => {
+  it("forwards login start to broker and returns device-auth payload", async () => {
     const app = createApp();
     const fetchMock = vi.mocked(global.fetch);
-    const brokerJson = vi.fn().mockRejectedValue(new Error("invalid json"));
     fetchMock.mockResolvedValueOnce({
-      status: 504,
-      json: brokerJson,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        sessionId: "s2",
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "WXYZ-78901",
+        startedAt: "2026-04-27T00:00:00.000Z",
+      }),
     } as unknown as Response);
 
-    const payload = {
-      url: "http://127.0.0.1:1455/?code=abc&state=xyz",
-    };
+    const res = await app.request("/codex-auth/login/start", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { verificationUrl: string; userCode: string };
+    expect(body.verificationUrl).toBe("https://auth.openai.com/codex/device");
+    expect(body.userCode).toBe("WXYZ-78901");
+    expect(fetchMock).toHaveBeenCalledWith("http://agent:3010/codex/login/start", {
+      method: "POST",
+    });
+  });
+
+  it("returns 404 for the removed callback route", async () => {
+    const app = createApp();
+
     const res = await app.request("/codex-auth/login/callback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ url: "http://localhost/" }),
     });
 
-    expect(res.status).toBe(504);
-    expect(await res.json()).toEqual({});
-    expect(fetchMock).toHaveBeenCalledWith("http://agent:3010/codex/login/callback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    expect(res.status).toBe(404);
   });
 
   it("reports login-proxy capabilities from environment defaults", async () => {
@@ -85,9 +98,6 @@ describe("codexAuthRouter", () => {
     const res = await app.request("/codex-auth/capabilities");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      loginProxyEnabled: false,
-      loopbackPort: 1455,
-    });
+    expect(await res.json()).toEqual({ loginProxyEnabled: false });
   });
 });

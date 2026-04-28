@@ -2,9 +2,10 @@ import * as React from "react";
 import { useState } from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { readDroppedFiles } from "@/lib/attachmentTransfer";
 
 interface DropZoneProps {
-  onFiles: (files: FileList) => void;
+  onFiles: (files: File[]) => void;
   label?: string;
   className?: string;
   children?: React.ReactNode;
@@ -12,7 +13,7 @@ interface DropZoneProps {
 
 function DropZone({
   onFiles,
-  label = "Drag files here to attach",
+  label = "Drag files or folders here to attach",
   className,
   children,
 }: DropZoneProps) {
@@ -28,9 +29,9 @@ function DropZone({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files.length > 0) {
-      onFiles(e.dataTransfer.files);
-    }
+    void readDroppedFiles(e.dataTransfer).then((files) => {
+      if (files.length > 0) onFiles(files);
+    });
   };
 
   return (

@@ -47,7 +47,7 @@ export interface CreateCodexRuntimeAdapterOptions {
 function createFallbackLogger(): CodexRuntimeAdapterLogger {
   return {
     debug(context, message) {
-      console.debug("DEBUG [runtime:codex]", message, context);
+      console.debug("[runtime:codex]", message, context);
     },
     info(context, message) {
       console.info("INFO [runtime:codex]", message, context);
@@ -360,7 +360,7 @@ export function createCodexRuntimeAdapter(
                 profileId: input.profileId ?? null,
                 modelCount: models.length,
               },
-              "DEBUG [runtime:codex] Fetched model list from OpenAI API",
+              "[runtime:codex] Fetched model list from OpenAI API",
             );
             return models;
           }
@@ -383,7 +383,7 @@ export function createCodexRuntimeAdapter(
             profileId: input.profileId ?? null,
             transport,
           },
-          "DEBUG [runtime:codex] Running app-server model discovery slow path (cache miss at runtime service level)",
+          "[runtime:codex] Running app-server model discovery slow path (cache miss at runtime service level)",
         );
         try {
           const models = await listCodexAppServerModels({ ...input, transport }, logger);
@@ -395,7 +395,7 @@ export function createCodexRuntimeAdapter(
                 transport,
                 discoveryDurationMs: Date.now() - slowPathStartedAt,
               },
-              "DEBUG [runtime:codex] Codex app-server model discovery slow path completed",
+              "[runtime:codex] Codex app-server model discovery slow path completed",
             );
             return models;
           }
@@ -419,7 +419,7 @@ export function createCodexRuntimeAdapter(
           profileId: input.profileId ?? null,
           transport,
         },
-        "DEBUG [runtime:codex] Returning built-in model list",
+        "[runtime:codex] Returning built-in model list",
       );
       return getDefaultCodexModels();
     },

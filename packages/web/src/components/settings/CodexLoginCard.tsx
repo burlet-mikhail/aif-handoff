@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { AlertBox } from "@/components/ui/alert-box";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -10,82 +9,167 @@ import {
   useCodexLoginCapabilities,
   useCodexLoginStatus,
   useStartCodexLogin,
-  useSubmitCodexCallback,
 } from "@/hooks/useCodexLogin";
 
-type WizardStep = "idle" | "awaiting_paste" | "submitting" | "success" | "error";
+type WizardStep = "idle" | "awaiting_completion" | "success" | "error";
 
 interface ViewState {
   step: WizardStep;
-  authUrl: string | null;
+  verificationUrl: string | null;
+  userCode: string | null;
   sessionId: string | null;
   error: string | null;
 }
 
+const INITIAL_VIEW: ViewState = {
+  step: "idle",
+  verificationUrl: null,
+  userCode: null,
+  sessionId: null,
+  error: null,
+};
+
+type FailureReason =
+  | "exit_nonzero"
+  | "signal"
+  | "timeout"
+  | "parse_timeout"
+  | "cancel"
+  | "spawn_failed";
+
+function failureMessage(
+  reason: string | undefined,
+  exitCode: number | null,
+  signal: string | null,
+): string {
+  switch (reason as FailureReason | undefined) {
+    case "exit_nonzero":
+      return `Codex CLI exited with code ${exitCode ?? "?"} before completing login. Check the agent logs (TLS / network).`;
+    case "signal":
+      return `Codex CLI was killed by signal ${signal ?? "?"} before completing login.`;
+    case "timeout":
+      return "Codex login session timed out after 5 minutes. Click Retry to start a fresh code.";
+    case "parse_timeout":
+      return "Codex CLI did not print a verification URL within 15 seconds. Check the agent logs and the codex binary version.";
+    case "cancel":
+      return "Codex login was cancelled.";
+    case "spawn_failed":
+      return "Could not spawn the codex CLI. Verify the binary is installed in the agent container.";
+    default:
+      return "Codex login ended without success and the broker did not report a reason.";
+  }
+}
+
 /**
- * Small guided wizard for the Docker-bound Codex OAuth flow.
+ * Guided wizard for `codex login --device-auth` running inside the agent
+ * container. The CLI prints a fixed verification URL plus a one-time code;
+ * the user opens the URL in the host browser, enters the code, and the CLI
+ * exits when ChatGPT confirms. The status query polls the broker until the
+ * child process exits.
  *
- * The host browser cannot reach the CLI's `127.0.0.1:1455` callback inside the
- * agent container, so we: (1) ask the broker to spawn `codex login`, (2) hand
- * the auth URL to the user, (3) let them paste the browser redirect URL back
- * so the broker can complete the flow from inside the container.
- *
- * Intentionally composed of existing UI primitives only — never add new
- * primitives here without a matching Pencil design sync.
+ * Composed of existing UI primitives only — never add new primitives without
+ * a matching Pencil design sync.
  */
 export function CodexLoginCard() {
-  const [view, setView] = useState<ViewState>({
-    step: "idle",
-    authUrl: null,
-    sessionId: null,
-    error: null,
-  });
-  const [pastedUrl, setPastedUrl] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [view, setView] = useState<ViewState>(INITIAL_VIEW);
+  const [codeCopied, setCodeCopied] = useState(false);
+  // Tracks whether the polling status query has reported an active session
+  // for the current wizard run. Without this gate, the initial inactive
+  // status response would race with the optimistic `awaiting_completion`
+  // transition from `handleStart` and immediately flip the wizard to
+  // success — even though the user has not yet completed the flow.
+  const sawActiveRef = useRef(false);
 
   const capabilities = useCodexLoginCapabilities();
-
-  // Always poll so a refresh picks up an in-flight session created before reload.
-  const statusQuery = useCodexLoginStatus({ enabled: true });
+  // Initial fetch fires once when the card first enters idle/awaiting_completion
+  // (to adopt any pre-existing session). After success/error the query is
+  // disabled. Interval polling only runs during awaiting_completion. Without
+  // these gates the broker would be hit on every StrictMode remount, every
+  // window focus, every reconnect — and once per second while idle.
+  const statusQuery = useCodexLoginStatus({
+    enabled: view.step === "idle" || view.step === "awaiting_completion",
+    pollIntervalMs: view.step === "awaiting_completion" ? 1_000 : false,
+  });
   const startMutation = useStartCodexLogin();
-  const submitMutation = useSubmitCodexCallback();
   const cancelMutation = useCancelCodexLogin();
 
-  // Adopt any pre-existing session the broker reports (user refreshed the page)
+  // Adopt any pre-existing session the broker reports (user refreshed the page),
+  // and detect terminal status (success / non-zero exit / signal / timeout /
+  // cancel) when an active session goes inactive. Success is gated on the
+  // broker's explicit `lastResult.ok === true` — we never infer success from
+  // the mere absence of an active child, because codex `--device-auth` can
+  // exit non-zero (network failure, user cancel in browser, etc.) and the UI
+  // must not lie to the user about authentication state.
   useEffect(() => {
     const data = statusQuery.data;
-    if (!data || !data.active) return;
-    if (view.step === "idle") {
+    if (!data) return;
+    if (data.active) {
+      sawActiveRef.current = true;
+      if (view.step === "idle") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setView({
+          step: "awaiting_completion",
+          verificationUrl: data.verificationUrl,
+          userCode: data.userCode,
+          sessionId: data.sessionId,
+          error: null,
+        });
+      }
+      return;
+    }
+    if (view.step !== "awaiting_completion" || !sawActiveRef.current) return;
+    const result = data.lastResult;
+    // Stale lastResult (different session) — keep waiting; ignore.
+    if (result && view.sessionId !== null && result.sessionId !== view.sessionId) return;
+    sawActiveRef.current = false;
+    if (result?.ok) {
       setView({
-        step: "awaiting_paste",
-        authUrl: data.authUrl,
-        sessionId: data.sessionId,
+        step: "success",
+        verificationUrl: null,
+        userCode: null,
+        sessionId: null,
         error: null,
       });
+      return;
     }
-  }, [statusQuery.data, view.step]);
+    setView({
+      step: "error",
+      verificationUrl: null,
+      userCode: null,
+      sessionId: null,
+      error: failureMessage(result?.reason, result?.exitCode ?? null, result?.signal ?? null),
+    });
+  }, [statusQuery.data, view.step, view.sessionId]);
 
-  const disabledStart = startMutation.isPending || view.step === "submitting";
+  const disabledStart = startMutation.isPending;
 
   const handleStart = async (): Promise<void> => {
-    setView({ step: "idle", authUrl: null, sessionId: null, error: null });
+    sawActiveRef.current = false;
+    setView(INITIAL_VIEW);
     try {
       const res = await startMutation.mutateAsync();
+      // Don't set sawActiveRef here — the polling status query is the
+      // authoritative signal that the broker has an active child. If the
+      // query has not yet confirmed active=true and we already see
+      // active=false, that's noise from a stale snapshot, not a completion.
       setView({
-        step: "awaiting_paste",
-        authUrl: res.authUrl,
+        step: "awaiting_completion",
+        verificationUrl: res.verificationUrl,
+        userCode: res.userCode,
         sessionId: res.sessionId,
         error: null,
       });
     } catch (err) {
-      // 409 = broker already has an active session (e.g. after a page reload
-      // or a form re-mount). Adopt it instead of surfacing as an error.
+      // 409 = broker already has an active session (e.g. after a page reload).
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.data as { sessionId?: string; authUrl?: string } | undefined;
-        if (body?.authUrl && body.sessionId) {
+        const body = err.data as
+          | { sessionId?: string; verificationUrl?: string; userCode?: string }
+          | undefined;
+        if (body?.verificationUrl && body.userCode && body.sessionId) {
           setView({
-            step: "awaiting_paste",
-            authUrl: body.authUrl,
+            step: "awaiting_completion",
+            verificationUrl: body.verificationUrl,
+            userCode: body.userCode,
             sessionId: body.sessionId,
             error: null,
           });
@@ -93,38 +177,21 @@ export function CodexLoginCard() {
         }
       }
       setView({
+        ...INITIAL_VIEW,
         step: "error",
-        authUrl: null,
-        sessionId: null,
         error: err instanceof Error ? err.message : "Failed to start Codex login",
       });
     }
   };
 
-  const handleCopy = async (): Promise<void> => {
-    if (!view.authUrl) return;
+  const handleCopyCode = async (): Promise<void> => {
+    if (!view.userCode) return;
     try {
-      await navigator.clipboard.writeText(view.authUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(view.userCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
     } catch {
-      // ignore — user can still copy manually from the readonly textarea
-    }
-  };
-
-  const handleSubmit = async (): Promise<void> => {
-    if (!pastedUrl.trim()) return;
-    setView((prev) => ({ ...prev, step: "submitting", error: null }));
-    try {
-      await submitMutation.mutateAsync(pastedUrl.trim());
-      setView({ step: "success", authUrl: null, sessionId: null, error: null });
-      setPastedUrl("");
-    } catch (err) {
-      setView((prev) => ({
-        ...prev,
-        step: "awaiting_paste",
-        error: err instanceof Error ? err.message : "Callback submission failed",
-      }));
+      // ignore — user can still copy manually from the displayed code
     }
   };
 
@@ -134,8 +201,8 @@ export function CodexLoginCard() {
     } catch {
       // Even if cancel fails, the UI resets so the user can retry.
     }
-    setPastedUrl("");
-    setView({ step: "idle", authUrl: null, sessionId: null, error: null });
+    sawActiveRef.current = false;
+    setView(INITIAL_VIEW);
   };
 
   if (capabilities.data && capabilities.data.loginProxyEnabled !== true) {
@@ -144,10 +211,8 @@ export function CodexLoginCard() {
 
   const heading = (() => {
     switch (view.step) {
-      case "awaiting_paste":
-        return "Step 2 — Paste the redirect URL";
-      case "submitting":
-        return "Completing Codex login…";
+      case "awaiting_completion":
+        return "Waiting for browser confirmation…";
       case "success":
         return "Codex login succeeded";
       case "error":
@@ -171,8 +236,8 @@ export function CodexLoginCard() {
         {view.step === "idle" && (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-muted-foreground">
-              Click Start to spawn <code>codex login</code> inside the agent container and receive
-              an authorization URL.
+              Click Start to spawn <code>codex login --device-auth</code> inside the agent container
+              and receive a verification URL plus a one-time code.
             </p>
             <div className="flex gap-2">
               <Button type="button" size="sm" disabled={disabledStart} onClick={handleStart}>
@@ -183,66 +248,55 @@ export function CodexLoginCard() {
           </div>
         )}
 
-        {(view.step === "awaiting_paste" || view.step === "submitting") && view.authUrl && (
+        {view.step === "awaiting_completion" && view.verificationUrl && view.userCode && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium">1. Open this URL in your browser</span>
-              <Textarea
-                readOnly
-                value={view.authUrl}
-                rows={2}
-                onFocus={(e) => e.currentTarget.select()}
-              />
+              <span className="text-xs font-medium">1. Open the verification page</span>
               <div className="flex gap-2">
-                <Button type="button" size="xs" variant="outline" onClick={handleCopy}>
-                  {copied ? "Copied" : "Copy URL"}
-                </Button>
                 <Button
                   type="button"
                   size="xs"
-                  variant="ghost"
-                  onClick={() => window.open(view.authUrl ?? "", "_blank", "noopener,noreferrer")}
+                  variant="outline"
+                  onClick={() =>
+                    window.open(view.verificationUrl ?? "", "_blank", "noopener,noreferrer")
+                  }
                 >
-                  Open in new tab
+                  Open verification page
                 </Button>
               </div>
-              <p className="text-3xs text-muted-foreground">
-                After authorizing, the browser redirects to
-                <code className="mx-1">http://localhost:1455/?code=…</code> and will show a
-                connection-refused error. That is expected — copy the full URL from the address bar
-                and paste it below.
-              </p>
+              <code className="text-3xs text-muted-foreground break-all">
+                {view.verificationUrl}
+              </code>
             </div>
 
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium">2. Paste the redirect URL</span>
-              <Textarea
-                value={pastedUrl}
-                onChange={(e) => setPastedUrl(e.target.value)}
-                rows={3}
-                placeholder="http://localhost:1455/?code=…&state=…"
-                disabled={view.step === "submitting"}
-              />
+              <span className="text-xs font-medium">2. Enter this one-time code</span>
+              <div
+                aria-label="Codex device authorization code"
+                className="rounded border border-border bg-muted px-3 py-2 text-center font-mono text-2xl tracking-widest select-all"
+              >
+                {view.userCode}
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="xs" variant="outline" onClick={handleCopyCode}>
+                  {codeCopied ? "Copied" : "Copy code"}
+                </Button>
+              </div>
+              <p className="text-3xs text-muted-foreground">
+                The code expires in 15 minutes. Once you finish in the browser, this card flips to
+                success automatically.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner />
+              <span>Waiting for browser confirmation…</span>
             </div>
 
             {view.error && <AlertBox variant="error">{view.error}</AlertBox>}
 
             <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleSubmit}
-                disabled={view.step === "submitting" || !pastedUrl.trim()}
-              >
-                {view.step === "submitting" ? <Spinner /> : "Submit callback"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={handleCancel}
-                disabled={view.step === "submitting"}
-              >
+              <Button type="button" size="sm" variant="ghost" onClick={handleCancel}>
                 Cancel
               </Button>
             </div>
@@ -256,19 +310,7 @@ export function CodexLoginCard() {
               <code className="ml-1">docker compose restart agent</code>
             </AlertBox>
             <div>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  setView({
-                    step: "idle",
-                    authUrl: null,
-                    sessionId: null,
-                    error: null,
-                  })
-                }
-              >
+              <Button type="button" size="sm" variant="ghost" onClick={() => setView(INITIAL_VIEW)}>
                 Start over
               </Button>
             </div>

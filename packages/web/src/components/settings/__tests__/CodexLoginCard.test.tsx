@@ -22,7 +22,6 @@ vi.mock("@/lib/api", () => {
       getCodexLoginCapabilities: vi.fn(),
       getCodexLoginStatus: vi.fn(),
       startCodexLogin: vi.fn(),
-      submitCodexCallback: vi.fn(),
       cancelCodexLogin: vi.fn(),
     },
   };
@@ -47,7 +46,6 @@ describe("CodexLoginCard", () => {
     vi.resetAllMocks();
     (api.getCodexLoginCapabilities as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       loginProxyEnabled: true,
-      loopbackPort: 1455,
     });
     (api.getCodexLoginStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       active: false,
@@ -60,32 +58,99 @@ describe("CodexLoginCard", () => {
     expect(screen.getByRole("button", { name: /Start Codex login/i })).toBeInTheDocument();
   });
 
-  it("drives the wizard: start → paste → submit → success", async () => {
+  it("displays the verification URL and one-time code after Start", async () => {
     (api.startCodexLogin as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       sessionId: "s-1",
-      authUrl: "https://chatgpt.com/auth/authorize?state=S",
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-12345",
       startedAt: new Date().toISOString(),
-    });
-    (api.submitCodexCallback as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      exitCode: 0,
     });
 
     renderCard();
     fireEvent.click(screen.getByRole("button", { name: /Start Codex login/i }));
 
-    const urlBox = await screen.findByDisplayValue("https://chatgpt.com/auth/authorize?state=S");
-    expect(urlBox).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("ABCD-12345")).toBeInTheDocument());
+    expect(screen.getByText("https://auth.openai.com/codex/device")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open verification page/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy code/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cancel/i })).toBeInTheDocument();
+  });
 
-    const pasteBox = screen.getByPlaceholderText(/http:\/\/localhost:1455/i);
-    fireEvent.change(pasteBox, { target: { value: "http://localhost:1455/?code=c&state=S" } });
+  it("flips to success only when the broker reports lastResult.ok=true", async () => {
+    const statusMock = api.getCodexLoginStatus as unknown as ReturnType<typeof vi.fn>;
+    statusMock.mockResolvedValue({
+      active: true,
+      sessionId: "s-1",
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-12345",
+      startedAt: new Date().toISOString(),
+    });
+    (api.startCodexLogin as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sessionId: "s-1",
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-12345",
+      startedAt: new Date().toISOString(),
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: /Submit callback/i }));
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: /Start Codex login/i }));
+    await waitFor(() => expect(screen.getByText("ABCD-12345")).toBeInTheDocument());
 
-    await waitFor(() =>
-      expect(screen.getByText(/Codex is now authenticated/i)).toBeInTheDocument(),
+    statusMock.mockResolvedValue({
+      active: false,
+      lastResult: {
+        ok: true,
+        sessionId: "s-1",
+        reason: "success",
+        exitCode: 0,
+        signal: null,
+        finishedAt: new Date().toISOString(),
+      },
+    });
+
+    await waitFor(
+      () => expect(screen.getByText(/Codex is now authenticated/i)).toBeInTheDocument(),
+      { timeout: 3000 },
     );
-    expect(api.submitCodexCallback).toHaveBeenCalledWith("http://localhost:1455/?code=c&state=S");
+  });
+
+  it("flips to error when the broker reports a non-zero exit terminal result", async () => {
+    const statusMock = api.getCodexLoginStatus as unknown as ReturnType<typeof vi.fn>;
+    statusMock.mockResolvedValue({
+      active: true,
+      sessionId: "s-2",
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-12345",
+      startedAt: new Date().toISOString(),
+    });
+    (api.startCodexLogin as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sessionId: "s-2",
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-12345",
+      startedAt: new Date().toISOString(),
+    });
+
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: /Start Codex login/i }));
+    await waitFor(() => expect(screen.getByText("ABCD-12345")).toBeInTheDocument());
+
+    statusMock.mockResolvedValue({
+      active: false,
+      lastResult: {
+        ok: false,
+        sessionId: "s-2",
+        reason: "exit_nonzero",
+        exitCode: 1,
+        signal: null,
+        finishedAt: new Date().toISOString(),
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/exited with code 1/i)).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.queryByText(/Codex is now authenticated/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
   });
 
   it("shows an error message when start fails", async () => {
@@ -96,26 +161,5 @@ describe("CodexLoginCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /Start Codex login/i }));
     await waitFor(() => expect(screen.getByText(/broker_unreachable/i)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
-  });
-
-  it("shows error but keeps the wizard alive when callback fails", async () => {
-    (api.startCodexLogin as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      sessionId: "s-1",
-      authUrl: "https://chatgpt.com/auth/authorize?state=S",
-      startedAt: new Date().toISOString(),
-    });
-    (api.submitCodexCallback as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("invalid_callback_url"),
-    );
-
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: /Start Codex login/i }));
-    const pasteBox = await screen.findByPlaceholderText(/http:\/\/localhost:1455/i);
-    fireEvent.change(pasteBox, { target: { value: "http://localhost:1455/?code=c&state=S" } });
-    fireEvent.click(screen.getByRole("button", { name: /Submit callback/i }));
-
-    await waitFor(() => expect(screen.getByText(/invalid_callback_url/i)).toBeInTheDocument());
-    // Paste-step controls still visible
-    expect(screen.getByRole("button", { name: /Submit callback/i })).toBeInTheDocument();
   });
 });

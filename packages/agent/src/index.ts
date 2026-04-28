@@ -88,7 +88,6 @@ if (env.AIF_ENABLE_CODEX_LOGIN_PROXY) {
   );
   startLoginBroker({
     port: env.AIF_CODEX_LOGIN_BROKER_PORT,
-    loopbackPort: env.AIF_CODEX_LOGIN_LOOPBACK_PORT,
     codexCliPath: env.CODEX_CLI_PATH ?? "codex",
   })
     .then((broker) => {

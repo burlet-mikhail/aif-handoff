@@ -315,7 +315,98 @@ Walk `.ai-factory/RULES.md` rules explicitly. For each rule, flag any clear viol
 the diff. Examples from this repo: 70 % coverage, SOLID/DRY, reuse UI primitives, sync
 Docker, no expensive CSS, sync adapter docs.
 
-### 4.6 Context Gates (Read-Only)
+### 4.6 PR Size — Decomposition Check
+
+A PR that is too large is hard to review carefully and easy to merge with hidden defects. Flag
+size as a **must-fix** when the PR clearly exceeds healthy limits, and recommend decomposition.
+
+Rough thresholds (use judgment — generated lockfiles, snapshots, and pure rename diffs should
+be excluded from the count before applying):
+
+- **Soft limit (warn):** > 400 changed lines OR > 15 changed files OR > 5 distinct concerns.
+- **Hard limit (must-fix):** > 800 changed lines OR > 30 changed files OR mixes unrelated
+  refactors / features / fixes in one PR.
+
+Compute the size:
+
+```bash
+gh pr view $PR --repo $OWNER/$REPO --json additions,deletions,files \
+  --jq '{additions, deletions, fileCount: (.files | length)}'
+```
+
+Exclude noise before deciding:
+
+- Lockfiles: `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`, `Cargo.lock`,
+  `poetry.lock`, `go.sum`.
+- Generated artifacts: `**/*.generated.ts`, `**/dist/**`, snapshot files matched by the
+  project's snapshot config.
+- Pure-rename diffs (file moved, contents unchanged) — count as 1 line each, not the
+  full file size.
+
+When the hard limit is hit, the verdict comment MUST include a "Decomposition" section
+under **Must fix** that:
+
+1. States the size (lines / files / concerns) and why it is over the bar.
+2. Proposes a concrete split — typically along these axes:
+   - **By concern:** one PR per feature, refactor, or fix (never bundle).
+   - **By layer:** schema/migration → data layer → API → UI as separate PRs when the
+     downstream layer can land independently.
+   - **By package:** one PR per `packages/*/` root when the changes are independently mergeable.
+   - **By risk:** isolate risky changes (DB migrations, auth, payment paths) into their own
+     small PR so they can be reviewed and rolled back independently.
+3. Names the suggested PR boundaries with file globs or commit ranges so the author can act
+   on it without further clarification.
+
+Soft-limit hits go under **Should fix** with the same structure but without blocking the verdict.
+
+### 4.7 Risky Change — Feature Flag Required
+
+Any change that introduces non-trivial new behavior, alters a hot path, touches an external
+contract, or could plausibly break existing flows MUST be guarded by an environment-driven
+feature flag that defaults to **off** (`false`). This lets the change ship dark, get rolled
+out per-environment, and be killed instantly if something regresses in production.
+
+Treat the following as **risky by default** (must be flag-gated unless the author provides
+a strong reason otherwise):
+
+- New runtime adapter, new transport, or change to existing adapter capabilities.
+- Schema migration that backfills, transforms, or deletes data (additive `ADD COLUMN` with a
+  default is usually safe without a flag).
+- Changes on the request hot path: WebSocket frame handling, polling coordinator cadence,
+  rate limiter, auth middleware, request logger.
+- New external dependency call (network, MCP server, OS process spawn) added to an existing
+  flow that previously did not make that call.
+- Behavioral change to an existing API route's response shape, error code, or side effects.
+- New cron job, queue consumer, or background worker.
+- Replacing a stable algorithm with a new one (sort, scoring, scheduling, retry policy).
+
+Required flag shape — look for ALL of these in the diff:
+
+1. **Env declaration:** the flag is added to `packages/shared/src/env.ts` (or the
+   project's central env-validation module) with a `boolean` schema and a default of `false`.
+2. **`.env.example` entry:** the variable is documented with a short comment explaining what
+   it gates.
+3. **Docs update:** `docs/configuration.md` (or the doc surface that lists env vars) lists
+   the new flag, its default, and the rollout intent.
+4. **Single read site:** the flag is read once at module init or via a small accessor — not
+   `process.env.FOO` re-read on every call inside hot loops.
+5. **Off path is the existing behavior:** when the flag is `false`, the new code path is not
+   reachable. No partial enabling, no "off but still imports the new module's side effects".
+6. **Naming:** `AIF_<AREA>_<FEATURE>_ENABLED` (e.g., `AIF_USAGE_LIMITS_ENABLED`,
+   `AIF_RUNTIME_OPENROUTER_ENABLED`). Avoid bare names like `NEW_FEATURE`.
+
+Findings:
+
+- Risky change with no flag → **must-fix**. Suggest the exact env name, default, and the
+  branch in code where the flag check should sit.
+- Flag exists but defaults to `true`, or off-path is broken → **must-fix**. Cite the line.
+- Flag exists, defaults to `false`, but `.env.example` / docs missing → **should-fix**.
+- Flag is read in a hot loop instead of cached at init → **should-fix**. Suggest hoisting.
+
+When risk is genuinely low (formatting, comment-only edits, dependency bumps with no API
+change, doc-only PRs), skip this section — do not invent risk where there is none.
+
+### 4.8 Context Gates (Read-Only)
 
 Produce a gate verdict for each:
 
@@ -344,11 +435,13 @@ Use:
 
 ### 5.2 Choose Verdict
 
-| Condition                                                  | Verdict           |
-| ---------------------------------------------------------- | ----------------- |
-| No `must-fix` and CI green                                 | `APPROVE`         |
-| Any `must-fix`, or red CI caused by PR changes             | `REQUEST_CHANGES` |
-| Only `should-fix` / `nit`, or flaky CI unrelated to the PR | `COMMENT`         |
+| Condition                                                      | Verdict           |
+| -------------------------------------------------------------- | ----------------- |
+| No `must-fix` and CI green                                     | `APPROVE`         |
+| Any `must-fix`, or red CI caused by PR changes                 | `REQUEST_CHANGES` |
+| PR exceeds the hard size limit (Step 4.6)                      | `REQUEST_CHANGES` |
+| Risky change without an off-by-default feature flag (Step 4.7) | `REQUEST_CHANGES` |
+| Only `should-fix` / `nit`, or flaky CI unrelated to the PR     | `COMMENT`         |
 
 In follow-up mode, if all previously-raised `must-fix` are `ADDRESSED` and no new `must-fix`
 appeared, prefer `APPROVE`.
@@ -381,6 +474,8 @@ Use this skeleton (in the resolved UI language; English by default):
 - Roadmap: <pass/warn/error> — <note>
 - CHECKLIST compliance (touched packages: <list>): <pass/warn/error>
 - Docs sync: <pass/warn/error>
+- PR size (<lines> / <files> / <concerns>): <pass/warn/error> — <note or proposed split>
+- Risk gating (feature flag): <pass/warn/error/n/a> — <flag name + default, or why no flag is needed>
 
 <optional "Positive notes" section when something is genuinely well done>
 ```

@@ -12,13 +12,23 @@ export function useCodexLoginCapabilities() {
   });
 }
 
-export function useCodexLoginStatus(options: { enabled?: boolean } = {}) {
+export function useCodexLoginStatus(
+  options: { enabled?: boolean; pollIntervalMs?: number | false } = {},
+) {
   const enabled = options.enabled ?? true;
+  const pollIntervalMs = options.pollIntervalMs ?? false;
   return useQuery({
     queryKey: STATUS_KEY,
     queryFn: () => api.getCodexLoginStatus(),
     enabled,
-    refetchInterval: enabled ? 1_000 : false,
+    // Single fetch on first enable + explicit invalidation by start/cancel
+    // mutations + interval polling while a session is in-flight. StrictMode
+    // remounts and window-focus events must not drag the broker.
+    refetchInterval: enabled && pollIntervalMs !== false ? pollIntervalMs : false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 
@@ -27,16 +37,6 @@ export function useStartCodexLogin() {
   return useMutation({
     mutationFn: () => api.startCodexLogin(),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: STATUS_KEY });
-    },
-  });
-}
-
-export function useSubmitCodexCallback() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (url: string) => api.submitCodexCallback(url),
-    onSettled: () => {
       qc.invalidateQueries({ queryKey: STATUS_KEY });
     },
   });

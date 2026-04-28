@@ -96,7 +96,7 @@ describe("TaskAttachments", () => {
     expect(onFilesSelected).toHaveBeenCalledWith(mockFiles);
   });
 
-  it("should call onFilesSelected on drop", () => {
+  it("should call onFilesSelected on drop", async () => {
     const onFilesSelected = vi.fn();
     render(
       <TaskAttachments
@@ -107,9 +107,42 @@ describe("TaskAttachments", () => {
       />,
     );
     fireEvent.click(screen.getByText("Show attachments (0)"));
-    const dropZone = screen.getByText("Drag files here to attach");
-    const mockFiles = [new File(["test"], "dropped.txt", { type: "text/plain" })];
-    fireEvent.drop(dropZone, { dataTransfer: { files: mockFiles } });
-    expect(onFilesSelected).toHaveBeenCalledWith(mockFiles);
+    const dropZone = screen.getByText(/drag files/i);
+    const mockFile = new File(["test"], "dropped.txt", { type: "text/plain" });
+    fireEvent.drop(dropZone, { dataTransfer: { files: [mockFile] } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onFilesSelected).toHaveBeenCalledWith([mockFile]);
+  });
+
+  it("should show running total when files attached", () => {
+    render(
+      <TaskAttachments
+        taskId="test-task-id"
+        attachments={sampleAttachments}
+        onFilesSelected={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Show attachments (2)"));
+    expect(screen.getByText(/2 files/)).toBeDefined();
+  });
+
+  it("should warn when batch is large but below cap", () => {
+    const big = Array.from({ length: 60 }, (_, i) => ({
+      name: `f${i}.txt`,
+      mimeType: "text/plain",
+      size: 100,
+      content: null,
+    }));
+    render(
+      <TaskAttachments
+        taskId="test-task-id"
+        attachments={big}
+        onFilesSelected={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Show attachments (60)"));
+    expect(screen.getByText(/large batch/i)).toBeDefined();
   });
 });

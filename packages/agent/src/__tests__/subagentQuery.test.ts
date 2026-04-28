@@ -21,6 +21,7 @@ interface MockTaskRow {
   projectId: string;
   runtimeOptionsJson: string | null;
   modelOverride: string | null;
+  branchName?: string | null;
 }
 
 interface MockEffectiveRuntimeProfile {
@@ -121,6 +122,7 @@ const baseMockEnv = {
   AGENT_MAX_REVIEW_ITERATIONS: 3,
   AGENT_USE_SUBAGENTS: true,
   AGENT_FIRST_ACTIVITY_TIMEOUT_MS: 60_000,
+  AIF_USAGE_LIMITS_ENABLED: true,
   TELEGRAM_BOT_TOKEN: undefined,
   TELEGRAM_USER_ID: undefined,
 };
@@ -283,6 +285,43 @@ describe("executeSubagentQuery attribution", () => {
     const callOptions = queryMock.mock.calls[0][0].options;
     expect(callOptions.settings).toEqual(
       expect.objectContaining({ attribution: { commit: "", pr: "" } }),
+    );
+  });
+
+  it("passes Handoff branch contract in runtime environment", async () => {
+    findTaskByIdMock.mockReturnValue({
+      id: "task-branch",
+      projectId: "project-1",
+      runtimeOptionsJson: null,
+      modelOverride: null,
+      branchName: "feature/task-branch",
+    });
+    queryMock.mockImplementation(async function* () {
+      yield {
+        type: "result",
+        subtype: "success",
+        result: "done",
+        usage: {},
+        total_cost_usd: 0,
+      };
+    });
+
+    await executeSubagentQuery({
+      taskId: "task-branch",
+      projectRoot: "/tmp/project",
+      agentName: "plan-coordinator",
+      prompt: "run",
+      workflowKind: "planner",
+    });
+
+    const callOptions = queryMock.mock.calls[0][0].options;
+    expect(callOptions.env).toEqual(
+      expect.objectContaining({
+        HANDOFF_MODE: "1",
+        HANDOFF_TASK_ID: "task-branch",
+        HANDOFF_BRANCH_PREPARED: "1",
+        HANDOFF_BRANCH_NAME: "feature/task-branch",
+      }),
     );
   });
 });
@@ -535,6 +574,7 @@ describe("executeSubagentQuery runtime limit state refresh", () => {
     clearRuntimeProfileLimitSnapshotMock.mockReset();
     notifyProjectRuntimeLimitBroadcastMock.mockReset();
     saveTaskSessionIdMock.mockReset();
+    delete mockEnvOverrides.AIF_USAGE_LIMITS_ENABLED;
     getTaskSessionIdMock.mockReset();
     findTaskByIdMock.mockReset();
     resolveEffectiveRuntimeProfileMock.mockReset();
@@ -607,6 +647,41 @@ describe("executeSubagentQuery runtime limit state refresh", () => {
     expect(notifyProjectRuntimeLimitBroadcastMock).toHaveBeenCalledWith("project-1", "profile-1", {
       taskId: "task-limit",
     });
+  });
+
+  it("does not parse or persist runtime limit snapshots when usage limits are disabled", async () => {
+    mockEnvOverrides.AIF_USAGE_LIMITS_ENABLED = false;
+    queryMock.mockImplementation(async function* () {
+      yield {
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "five_hour",
+          utilization: 0.96,
+          resetsAt: 1_776_389_600,
+        },
+      };
+      yield {
+        type: "result",
+        subtype: "success",
+        result: "done",
+        usage: {},
+        total_cost_usd: 0,
+      };
+    });
+
+    await executeSubagentQuery({
+      taskId: "task-limit-disabled",
+      projectRoot: "/tmp/project",
+      agentName: "implement-coordinator",
+      prompt: "run",
+      workflowKind: "implementer",
+    });
+
+    expect(persistRuntimeProfileLimitSnapshotMock).not.toHaveBeenCalled();
+    expect(clearRuntimeProfileLimitSnapshotMock).not.toHaveBeenCalled();
+    expect(notifyProjectRuntimeLimitBroadcastMock).not.toHaveBeenCalled();
+    delete mockEnvOverrides.AIF_USAGE_LIMITS_ENABLED;
   });
 
   it("preserves runtime profile limit state after successful runs without limit metadata", async () => {

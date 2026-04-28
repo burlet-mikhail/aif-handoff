@@ -1,6 +1,5 @@
 import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
-import { z } from "zod";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { logger } from "@aif/shared";
@@ -9,23 +8,64 @@ const log = logger("codex-login-broker");
 
 const DEFAULT_PORT = 3010;
 const DEFAULT_HOST = "0.0.0.0";
-const DEFAULT_LOOPBACK_PORT = 1455;
-const DEFAULT_LOOPBACK_HOST = "127.0.0.1";
 
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
-const CHILD_EXIT_TIMEOUT_MS = 30 * 1000;
 
-const AUTH_URL_PATTERN = /https:\/\/[^\s]+(?:auth|authorize|login)[^\s]*/i;
+const VERIFICATION_URL = "https://auth.openai.com/codex/device";
+const ANSI_PATTERN = /\x1B\[[0-9;]*[A-Za-z]/g;
+const USER_CODE_PATTERN = /\b[A-Z0-9]{4}-[A-Z0-9]{4,}\b/;
+const USER_CODE_PATTERN_GLOBAL = /\b[A-Z0-9]{4}-[A-Z0-9]{4,}\b/g;
+const REDACTED_CODE = "***-*****";
+const LOG_CHUNK_LIMIT = 200;
 
-const callbackBodySchema = z.object({
-  url: z.string().min(1, "url is required").max(4096),
-});
+export type TerminalReason =
+  | "success"
+  | "exit_nonzero"
+  | "signal"
+  | "timeout"
+  | "parse_timeout"
+  | "cancel"
+  | "spawn_failed";
+
+/**
+ * Reject reason carried out of the parse-output promise so the start handler
+ * can record a precise terminal result. Plain `Error.message` matching would
+ * collapse the failure modes (async spawn error vs early exit vs no-output
+ * timeout) into one bucket.
+ */
+class DeviceAuthParseError extends Error {
+  constructor(
+    public readonly reason: Extract<
+      TerminalReason,
+      "exit_nonzero" | "spawn_failed" | "parse_timeout"
+    >,
+    message: string,
+    public readonly exitCode: number | null = null,
+  ) {
+    super(message);
+    this.name = "DeviceAuthParseError";
+  }
+}
+
+export interface TerminalResult {
+  ok: boolean;
+  sessionId: string;
+  finishedAt: number;
+  reason: TerminalReason;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+export interface DeviceAuthInfo {
+  verificationUrl: string;
+  userCode: string;
+}
 
 export interface LoginSession {
   id: string;
   child: ChildProcessWithoutNullStreams;
-  authUrl: string;
-  state: string | null;
+  verificationUrl: string;
+  userCode: string;
   startedAt: number;
   timeoutHandle: NodeJS.Timeout;
 }
@@ -34,6 +74,8 @@ export interface BrokerRuntime {
   app: Hono;
   /** Internal accessor for tests */
   getCurrentSession(): LoginSession | null;
+  /** Internal accessor for tests */
+  getLastResult(): TerminalResult | null;
 }
 
 export interface BrokerServer {
@@ -47,110 +89,66 @@ export interface BrokerServer {
 export interface BrokerOptions {
   port?: number;
   host?: string;
-  loopbackHost?: string;
-  loopbackPort?: number;
   codexCliPath?: string;
   /** Override spawn for tests */
   spawnFn?: typeof spawn;
-  /** Override fetch for tests */
-  fetchFn?: typeof fetch;
 }
 
 interface BrokerContext {
   currentSession: LoginSession | null;
-  options: Required<Omit<BrokerOptions, "spawnFn" | "fetchFn">> & {
+  lastResult: TerminalResult | null;
+  options: Required<Omit<BrokerOptions, "spawnFn">> & {
     spawnFn: typeof spawn;
-    fetchFn: typeof fetch;
   };
 }
 
 /**
- * Extract the auth URL that the codex CLI prints to stdout. Codex currently
- * prints a line like `Visit https://chatgpt.com/auth/authorize?...` or
- * similar. Kept forgiving — we just need the first https URL that contains
- * an auth-like path segment.
+ * Extract verification URL and one-time code from `codex login --device-auth`
+ * stdout. The CLI prints a fixed verification URL and a code like
+ * `XXXX-YYYYY`. ANSI escape codes are stripped before matching. Both fields
+ * must be present for a successful parse — partial output returns null.
  */
-export function extractAuthUrlFromStdout(chunk: string): string | null {
-  const match = AUTH_URL_PATTERN.exec(chunk);
-  return match ? match[0] : null;
+export function extractDeviceAuth(buffered: string): DeviceAuthInfo | null {
+  const cleaned = buffered.replace(ANSI_PATTERN, "");
+  if (!cleaned.includes(VERIFICATION_URL)) return null;
+  const codeMatch = USER_CODE_PATTERN.exec(cleaned);
+  if (!codeMatch) return null;
+  return { verificationUrl: VERIFICATION_URL, userCode: codeMatch[0] };
+}
+
+/** Mask all but the last 2 characters of the one-time code for logging. */
+export function maskUserCode(code: string): string {
+  if (code.length <= 2) return "***";
+  return `${"*".repeat(code.length - 2)}${code.slice(-2)}`;
 }
 
 /**
- * Parse the `state` query parameter from the auth URL, used to match the
- * callback. Returns null when the URL has no state parameter or cannot be
- * parsed.
+ * Redact every device-code-shaped token from a raw stdout/stderr chunk before
+ * it is written to the logger. Without this, DEBUG-level chunk logs would
+ * leak the exact one-time code printed by the codex CLI.
  */
-export function extractStateFromAuthUrl(authUrl: string): string | null {
-  try {
-    const parsed = new URL(authUrl);
-    return parsed.searchParams.get("state");
-  } catch {
-    return null;
-  }
+export function redactChunkForLog(text: string): string {
+  return text.replace(USER_CODE_PATTERN_GLOBAL, REDACTED_CODE).slice(0, LOG_CHUNK_LIMIT);
 }
 
-export interface CallbackValidationResult {
-  ok: boolean;
-  reason?: string;
-  parsed?: URL;
+function recordTerminalResult(ctx: BrokerContext, result: TerminalResult): void {
+  ctx.lastResult = result;
+  log.info(
+    {
+      sessionId: result.sessionId,
+      ok: result.ok,
+      reason: result.reason,
+      exitCode: result.exitCode,
+      signal: result.signal,
+    },
+    "[Broker.terminalResult] session ended",
+  );
 }
 
-/**
- * Validate that a user-pasted callback URL is safe to proxy to the codex
- * loopback listener. Allows only the expected host/port/scheme and requires
- * both `code` and `state` to be present.
- */
-export function validateCallbackUrl(
-  rawUrl: string,
-  options: { loopbackHost: string; loopbackPort: number; expectedState: string | null },
-): CallbackValidationResult {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return { ok: false, reason: "invalid_url" };
-  }
-
-  if (parsed.protocol !== "http:") {
-    return { ok: false, reason: "scheme_not_allowed" };
-  }
-
-  const allowedHosts = new Set<string>([options.loopbackHost, "localhost", "127.0.0.1"]);
-  if (!allowedHosts.has(parsed.hostname)) {
-    return { ok: false, reason: "host_not_allowed" };
-  }
-
-  const port = parsed.port ? Number(parsed.port) : 80;
-  if (!Number.isFinite(port) || port !== options.loopbackPort) {
-    return { ok: false, reason: "port_not_allowed" };
-  }
-
-  const code = parsed.searchParams.get("code");
-  const state = parsed.searchParams.get("state");
-  if (!code) return { ok: false, reason: "missing_code" };
-  if (!state) return { ok: false, reason: "missing_state" };
-
-  if (options.expectedState !== null && state !== options.expectedState) {
-    return { ok: false, reason: "state_mismatch" };
-  }
-
-  return { ok: true, parsed };
-}
-
-/** Mask sensitive query parameters in a URL for logging. */
-export function redactCallbackUrl(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    for (const key of ["code", "state", "id_token", "access_token"]) {
-      if (parsed.searchParams.has(key)) parsed.searchParams.set(key, "***redacted***");
-    }
-    return parsed.toString();
-  } catch {
-    return "<unparseable-url>";
-  }
-}
-
-function terminateSession(ctx: BrokerContext, reason: string): void {
+function terminateSession(
+  ctx: BrokerContext,
+  reason: Extract<TerminalReason, "timeout" | "cancel">,
+): void {
   const session = ctx.currentSession;
   if (!session) return;
   log.info({ sessionId: session.id, reason }, "[Broker.terminateSession] ending session");
@@ -162,7 +160,21 @@ function terminateSession(ctx: BrokerContext, reason: string): void {
       log.warn({ err }, "[Broker.terminateSession] failed to kill child");
     }
   }
+  recordTerminalResult(ctx, {
+    ok: false,
+    sessionId: session.id,
+    finishedAt: Date.now(),
+    reason,
+    exitCode: null,
+    signal: null,
+  });
   ctx.currentSession = null;
+}
+
+function classifyExit(code: number | null, signal: NodeJS.Signals | null): TerminalReason {
+  if (signal !== null) return "signal";
+  if (code === 0) return "success";
+  return "exit_nonzero";
 }
 
 function createBrokerApp(ctx: BrokerContext): Hono {
@@ -171,13 +183,29 @@ function createBrokerApp(ctx: BrokerContext): Hono {
   app.get("/codex/login/status", (c) => {
     log.debug("[Broker.status] enter");
     const session = ctx.currentSession;
-    if (!session) return c.json({ active: false });
-    return c.json({
-      active: true,
-      sessionId: session.id,
-      authUrl: session.authUrl,
-      startedAt: new Date(session.startedAt).toISOString(),
-    });
+    if (session) {
+      return c.json({
+        active: true,
+        sessionId: session.id,
+        verificationUrl: session.verificationUrl,
+        userCode: session.userCode,
+        startedAt: new Date(session.startedAt).toISOString(),
+      });
+    }
+    if (ctx.lastResult) {
+      return c.json({
+        active: false,
+        lastResult: {
+          ok: ctx.lastResult.ok,
+          sessionId: ctx.lastResult.sessionId,
+          reason: ctx.lastResult.reason,
+          exitCode: ctx.lastResult.exitCode,
+          signal: ctx.lastResult.signal,
+          finishedAt: new Date(ctx.lastResult.finishedAt).toISOString(),
+        },
+      });
+    }
+    return c.json({ active: false });
   });
 
   app.post("/codex/login/start", async (c) => {
@@ -192,67 +220,86 @@ function createBrokerApp(ctx: BrokerContext): Hono {
         {
           error: "session_already_active",
           sessionId: ctx.currentSession.id,
-          authUrl: ctx.currentSession.authUrl,
+          verificationUrl: ctx.currentSession.verificationUrl,
+          userCode: ctx.currentSession.userCode,
         },
         409,
       );
     }
 
+    // Each new start clears the previous terminal result so /status during
+    // the new run reflects only the current session.
+    ctx.lastResult = null;
+
     const cliPath = ctx.options.codexCliPath;
-    log.debug({ cliPath }, "[Broker.start] spawning codex login");
+    log.debug({ cliPath }, "[Broker.start] spawning codex login --device-auth");
 
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = ctx.options.spawnFn(cliPath, ["login"], {
+      child = ctx.options.spawnFn(cliPath, ["login", "--device-auth"], {
         stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env },
       });
     } catch (err) {
       log.error({ err }, "[Broker.start] spawn failed");
+      recordTerminalResult(ctx, {
+        ok: false,
+        sessionId: randomUUID(),
+        finishedAt: Date.now(),
+        reason: "spawn_failed",
+        exitCode: null,
+        signal: null,
+      });
       return c.json({ error: "spawn_failed", message: String(err) }, 500);
     }
 
     const sessionId = randomUUID();
     const startedAt = Date.now();
 
-    const urlPromise = new Promise<string>((resolve, reject) => {
+    const parsePromise = new Promise<DeviceAuthInfo>((resolve, reject) => {
       let settled = false;
       let buffered = "";
 
+      const tryParse = () => {
+        const info = extractDeviceAuth(buffered);
+        if (info && !settled) {
+          settled = true;
+          child.stdout.off("data", onData);
+          child.stderr.off("data", onStderr);
+          resolve(info);
+        }
+      };
       const onData = (data: Buffer) => {
         const text = data.toString("utf8");
         buffered += text;
-        log.debug({ chunk: text.slice(0, 200) }, "[Broker.start] codex stdout");
-        const url = extractAuthUrlFromStdout(buffered);
-        if (url && !settled) {
-          settled = true;
-          child.stdout.off("data", onData);
-          child.stderr.off("data", onStderr);
-          resolve(url);
-        }
+        log.debug({ chunk: redactChunkForLog(text) }, "[Broker.start] codex stdout");
+        tryParse();
       };
       const onStderr = (data: Buffer) => {
         const text = data.toString("utf8");
-        log.debug({ chunk: text.slice(0, 200) }, "[Broker.start] codex stderr");
+        log.debug({ chunk: redactChunkForLog(text) }, "[Broker.start] codex stderr");
         buffered += text;
-        const url = extractAuthUrlFromStdout(buffered);
-        if (url && !settled) {
-          settled = true;
-          child.stdout.off("data", onData);
-          child.stderr.off("data", onStderr);
-          resolve(url);
-        }
+        tryParse();
       };
       const onExit = (code: number | null) => {
         if (!settled) {
           settled = true;
-          reject(new Error(`codex exited before printing auth URL (code=${code})`));
+          reject(
+            new DeviceAuthParseError(
+              "exit_nonzero",
+              `codex exited before printing device auth (code=${code})`,
+              code,
+            ),
+          );
         }
       };
       const onError = (err: Error) => {
         if (!settled) {
           settled = true;
-          reject(err);
+          // `error` events on a spawned child usually mean the binary could
+          // not be launched (ENOENT, EACCES, etc.) — surface that as
+          // spawn_failed rather than collapsing it into exit_nonzero.
+          reject(new DeviceAuthParseError("spawn_failed", err.message));
         }
       };
 
@@ -266,25 +313,39 @@ function createBrokerApp(ctx: BrokerContext): Hono {
           settled = true;
           child.stdout.off("data", onData);
           child.stderr.off("data", onStderr);
-          reject(new Error("timed out waiting for codex auth URL"));
+          reject(
+            new DeviceAuthParseError(
+              "parse_timeout",
+              "timed out waiting for codex device auth output",
+            ),
+          );
         }
       }, 15_000).unref();
     });
 
-    let authUrl: string;
+    let info: DeviceAuthInfo;
     try {
-      authUrl = await urlPromise;
+      info = await parsePromise;
     } catch (err) {
-      log.error({ err }, "[Broker.start] failed to extract auth URL");
+      log.error({ err }, "[Broker.start] failed to parse device auth output");
       try {
         child.kill("SIGTERM");
       } catch {
         // ignore
       }
-      return c.json({ error: "auth_url_parse_failed", message: String(err) }, 500);
+      const parseErr = err instanceof DeviceAuthParseError ? err : null;
+      recordTerminalResult(ctx, {
+        ok: false,
+        sessionId,
+        finishedAt: Date.now(),
+        reason: parseErr?.reason ?? "exit_nonzero",
+        exitCode: parseErr?.exitCode ?? child.exitCode,
+        signal: null,
+      });
+      return c.json({ error: "device_auth_parse_failed", message: String(err) }, 500);
     }
 
-    const state = extractStateFromAuthUrl(authUrl);
+    log.debug({ userCodeMasked: maskUserCode(info.userCode) }, "[Broker.start] device auth parsed");
 
     const timeoutHandle = setTimeout(() => {
       log.warn({ sessionId }, "[Broker.start] session timed out");
@@ -295,111 +356,42 @@ function createBrokerApp(ctx: BrokerContext): Hono {
     const session: LoginSession = {
       id: sessionId,
       child,
-      authUrl,
-      state,
+      verificationUrl: info.verificationUrl,
+      userCode: info.userCode,
       startedAt,
       timeoutHandle,
     };
 
     child.once("exit", (code, signal) => {
       log.info({ sessionId, code, signal }, "[Broker.childExit] codex exited");
-      if (ctx.currentSession?.id === sessionId) {
-        clearTimeout(session.timeoutHandle);
-        ctx.currentSession = null;
-      }
+      // If the session was already cleared by terminateSession (cancel/timeout)
+      // we keep that terminal result — terminateSession recorded the reason
+      // before signalling the child.
+      if (ctx.currentSession?.id !== sessionId) return;
+      clearTimeout(session.timeoutHandle);
+      const reason = classifyExit(code, signal);
+      recordTerminalResult(ctx, {
+        ok: reason === "success",
+        sessionId,
+        finishedAt: Date.now(),
+        reason,
+        exitCode: code,
+        signal,
+      });
+      ctx.currentSession = null;
     });
 
     ctx.currentSession = session;
-    log.info({ sessionId, hasState: state !== null }, "[Broker.start] session started");
-    return c.json({ sessionId, authUrl, startedAt: new Date(startedAt).toISOString() });
-  });
-
-  app.post("/codex/login/callback", async (c) => {
-    log.debug("[Broker.callback] enter");
-    const session = ctx.currentSession;
-    if (!session) {
-      log.warn("[Broker.callback] no active session");
-      return c.json({ error: "no_active_session" }, 409);
-    }
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "invalid_json" }, 400);
-    }
-
-    const parsed = callbackBodySchema.safeParse(body);
-    if (!parsed.success) {
-      log.warn({ issues: parsed.error.issues }, "[Broker.callback] body validation failed");
-      return c.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
-    }
-
-    const validation = validateCallbackUrl(parsed.data.url, {
-      loopbackHost: ctx.options.loopbackHost,
-      loopbackPort: ctx.options.loopbackPort,
-      expectedState: session.state,
-    });
-
-    if (!validation.ok || !validation.parsed) {
-      log.warn(
-        { reason: validation.reason, url: redactCallbackUrl(parsed.data.url) },
-        "[Broker.callback] URL validation failed",
-      );
-      return c.json({ error: "invalid_callback_url", reason: validation.reason }, 400);
-    }
-
-    const target = validation.parsed.toString();
     log.info(
-      { sessionId: session.id, target: redactCallbackUrl(target) },
-      "[Broker.callback] proxying callback to codex loopback",
+      { sessionId, userCodeMasked: maskUserCode(info.userCode) },
+      "[Broker.start] session started",
     );
-
-    let proxyResponse: Response;
-    try {
-      proxyResponse = await ctx.options.fetchFn(target, { method: "GET" });
-    } catch (err) {
-      log.error({ err }, "[Broker.callback] fetch to loopback failed");
-      return c.json({ error: "loopback_fetch_failed", message: String(err) }, 502);
-    }
-
-    if (!proxyResponse.ok) {
-      log.warn(
-        { status: proxyResponse.status },
-        "[Broker.callback] loopback returned non-2xx — keeping child alive",
-      );
-      return c.json({ error: "loopback_non_2xx", status: proxyResponse.status }, 502);
-    }
-
-    const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve) => {
-        if (session.child.exitCode !== null) {
-          resolve({ code: session.child.exitCode, signal: null });
-          return;
-        }
-        session.child.once("exit", (code, signal) => resolve({ code, signal }));
-      },
-    );
-
-    const timeoutPromise = new Promise<null>((resolve) => {
-      const t = setTimeout(() => resolve(null), CHILD_EXIT_TIMEOUT_MS);
-      t.unref();
+    return c.json({
+      sessionId,
+      verificationUrl: info.verificationUrl,
+      userCode: info.userCode,
+      startedAt: new Date(startedAt).toISOString(),
     });
-
-    const result = await Promise.race([exitPromise, timeoutPromise]);
-
-    if (result === null) {
-      log.warn({ sessionId: session.id }, "[Broker.callback] child did not exit within timeout");
-      return c.json({ error: "child_exit_timeout" }, 504);
-    }
-
-    log.info(
-      { sessionId: session.id, code: result.code, signal: result.signal },
-      "[Broker.callback] login completed successfully",
-    );
-    clearTimeout(session.timeoutHandle);
-    ctx.currentSession = null;
-    return c.json({ ok: true, exitCode: result.code });
   });
 
   app.post("/codex/login/cancel", (c) => {
@@ -416,14 +408,12 @@ function createBrokerApp(ctx: BrokerContext): Hono {
 export function createBrokerRuntime(options: BrokerOptions = {}): BrokerRuntime {
   const ctx: BrokerContext = {
     currentSession: null,
+    lastResult: null,
     options: {
       port: options.port ?? DEFAULT_PORT,
       host: options.host ?? DEFAULT_HOST,
-      loopbackHost: options.loopbackHost ?? DEFAULT_LOOPBACK_HOST,
-      loopbackPort: options.loopbackPort ?? DEFAULT_LOOPBACK_PORT,
       codexCliPath: options.codexCliPath ?? "codex",
       spawnFn: options.spawnFn ?? spawn,
-      fetchFn: options.fetchFn ?? fetch,
     },
   };
 
@@ -431,6 +421,7 @@ export function createBrokerRuntime(options: BrokerOptions = {}): BrokerRuntime 
   return {
     app,
     getCurrentSession: () => ctx.currentSession,
+    getLastResult: () => ctx.lastResult,
   };
 }
 

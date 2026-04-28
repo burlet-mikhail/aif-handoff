@@ -20,8 +20,21 @@ export type PlanChangeMode = "replanning" | "fast_fix" | "request_changes";
 const TEXT_FILE_MAX_SIZE = 200_000;
 const IMAGE_FILE_MAX_SIZE = 1_000_000;
 const BASE64_CONTENT_MAX_SIZE = 2_000_000;
-const MAX_TASK_ATTACHMENTS = 10;
+export const MAX_TASK_ATTACHMENTS = 100;
+export const TASK_ATTACHMENT_WARN_AT = 50;
+// Mirrors taskAttachmentSchema.size.max() in packages/api/src/schemas.ts.
+export const ATTACHMENT_SIZE_HARD_LIMIT = 100_000_000;
 const COMMENT_TIMEOUT_MS = 30_000;
+
+export function partitionBySize(files: File[]): { accepted: File[]; rejected: File[] } {
+  const accepted: File[] = [];
+  const rejected: File[] = [];
+  for (const f of files) {
+    if (f.size > ATTACHMENT_SIZE_HARD_LIMIT) rejected.push(f);
+    else accepted.push(f);
+  }
+  return { accepted, rejected };
+}
 
 export async function toAttachmentPayload(file: File): Promise<TaskCommentAttachment> {
   const isTextLike =
@@ -236,9 +249,21 @@ export function useTaskDetailActions(task: Task | undefined, onClose: () => void
   };
 
   // --- Attachments ---
-  const handleTaskAttachmentsSelected = async (files: FileList | null) => {
-    if (!task || !files || files.length === 0) return;
-    const uploaded = await Promise.all(Array.from(files).map((file) => toAttachmentPayload(file)));
+  const handleTaskAttachmentsSelected = async (files: File[] | FileList | null) => {
+    if (!task || !files) return;
+    const arr = Array.isArray(files) ? files : Array.from(files);
+    if (arr.length === 0) return;
+    const { accepted, rejected } = partitionBySize(arr);
+    if (rejected.length > 0) {
+      console.warn(
+        "[task-detail] dropping %d files over %d bytes: %s",
+        rejected.length,
+        ATTACHMENT_SIZE_HARD_LIMIT,
+        rejected.map((f) => f.name).join(", "),
+      );
+    }
+    if (accepted.length === 0) return;
+    const uploaded = await Promise.all(accepted.map((file) => toAttachmentPayload(file)));
     const taskAttachments = task.attachments ?? [];
     updateTask.mutate({
       id: task.id,

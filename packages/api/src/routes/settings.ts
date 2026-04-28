@@ -134,7 +134,7 @@ settingsRoutes.get("/runtime-defaults", (c) => {
 
 settingsRoutes.put("/runtime-defaults", jsonValidator(updateAppRuntimeDefaultsSchema), (c) => {
   const body = c.req.valid("json");
-  log.debug({ body }, "DEBUG [settings] Runtime defaults update requested");
+  log.debug({ body }, "[settings] Runtime defaults update requested");
 
   const validation = validateAppRuntimeDefaultSelections(body);
   if (validation) {

@@ -59,28 +59,28 @@ The API exposes effective selection endpoints:
 
 ## Supported Runtimes
 
-| Runtime      | Provider     | Transports    | Resume         | Sessions       | Agent Defs    | Native Subagents | Isolated Fallback | Usage Reporting               | Light Model         | Status                    |
-| ------------ | ------------ | ------------- | -------------- | -------------- | ------------- | ---------------- | ----------------- | ----------------------------- | ------------------- | ------------------------- |
-| `claude`     | `anthropic`  | SDK, CLI, API | Yes (SDK/CLI)  | Yes (SDK/CLI)  | Yes (SDK/CLI) | No               | No                | `FULL` (all transports)       | `claude-haiku-3-5`  | Built-in                  |
-| `codex`      | `openai`     | SDK, CLI, API | Yes (SDK only) | Yes (SDK only) | No            | SDK only         | SDK only          | `FULL` SDK/API, `PARTIAL` CLI | default             | Built-in                  |
-| `opencode`   | `opencode`   | API           | Yes            | Yes            | No            | No               | No                | `NONE`                        | null (configurable) | Built-in                  |
-| `openrouter` | `openrouter` | API           | No             | No             | No            | No               | No                | `FULL`                        | null (configurable) | Built-in                  |
-| Custom       | Any          | Any           | Configurable   | Configurable   | Configurable  | Configurable     | Configurable      | Must declare                  | Configurable        | Via `AIF_RUNTIME_MODULES` |
+| Runtime      | Provider     | Transports    | Resume        | Sessions             | Agent Defs    | Native Subagents | Isolated Fallback | Usage Reporting               | Light Model         | Status                    |
+| ------------ | ------------ | ------------- | ------------- | -------------------- | ------------- | ---------------- | ----------------- | ----------------------------- | ------------------- | ------------------------- |
+| `claude`     | `anthropic`  | SDK, CLI, API | Yes (SDK/CLI) | Yes (SDK/CLI)        | Yes (SDK/CLI) | No               | No                | `FULL` (all transports)       | `claude-haiku-3-5`  | Built-in                  |
+| `codex`      | `openai`     | SDK, CLI, API | Yes (SDK/CLI) | Yes (SDK/App Server) | No            | SDK only         | SDK only          | `FULL` SDK/API, `PARTIAL` CLI | default             | Built-in                  |
+| `opencode`   | `opencode`   | API           | Yes           | Yes                  | No            | No               | No                | `NONE`                        | null (configurable) | Built-in                  |
+| `openrouter` | `openrouter` | API           | No            | No                   | No            | No               | No                | `FULL`                        | null (configurable) | Built-in                  |
+| Custom       | Any          | Any           | Configurable  | Configurable         | Configurable  | Configurable     | Configurable      | Must declare                  | Configurable        | Via `AIF_RUNTIME_MODULES` |
 
-Capabilities are **transport-aware**: the same adapter may expose different capabilities depending on the selected transport. For example, the Codex adapter supports resume/sessions via SDK transport but not via CLI. Use `resolveAdapterCapabilities(adapter, transport)` to get the effective set.
+Capabilities are **transport-aware**: the same adapter may expose different capabilities depending on the selected transport. For example, Codex supports resume on SDK/CLI, while session discovery remains SDK/App Server-only. Use `resolveAdapterCapabilities(adapter, transport)` to get the effective set.
 
 ### Runtime-limit observability
 
 Runtime-limit auto-pause depends on what each provider/transport can actually surface. The runtime layer normalizes these inputs into the shared `runtimeLimitSnapshot` contract and marks each snapshot as either `exact` or `heuristic`.
 
-| Runtime / transport | Limit source                            | Precision   | Notes                                                                                                                                          |
-| ------------------- | --------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude SDK / CLI    | Claude `rate_limit_event`               | `heuristic` | Structured qualitative status with reset timestamps (`status`, `resetsAt`, `overageStatus`, `isUsingOverage`, ...)                             |
-| Claude API          | Anthropic rate-limit headers            | `exact`     | Exact request/token limits and reset times from `anthropic-ratelimit-*` + `retry-after`                                                        |
-| Codex API           | OpenAI-compatible rate-limit headers    | `exact`     | Exact request/token limits and reset times from `x-ratelimit-*` + `retry-after`                                                                |
-| Codex SDK / CLI     | Codex session `token_count.rate_limits` | `exact`     | Reads the persisted Codex session log (`~/.codex/sessions/...jsonl`) and normalizes the latest `5h` / `7d` percentage windows plus reset times |
-| OpenRouter API      | OpenAI-compatible rate-limit headers    | `exact`     | Uses `x-ratelimit-*` / `retry-after` when the upstream provides them                                                                           |
-| OpenCode API        | structured error metadata               | `heuristic` | Preserves `resetAt` / retry hints on rate-limit errors, but no proactive normalized snapshot is emitted today                                  |
+| Runtime / transport | Limit source                            | Precision   | Notes                                                                                                                                                                                                         |
+| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude SDK / CLI    | Claude `rate_limit_event`               | `heuristic` | Structured qualitative status with reset timestamps (`status`, `resetsAt`, `overageStatus`, `isUsingOverage`, ...)                                                                                            |
+| Claude API          | Anthropic rate-limit headers            | `exact`     | Exact request/token limits and reset times from `anthropic-ratelimit-*` + `retry-after`                                                                                                                       |
+| Codex API           | OpenAI-compatible rate-limit headers    | `exact`     | Exact request/token limits and reset times from `x-ratelimit-*` + `retry-after`                                                                                                                               |
+| Codex SDK / CLI     | Codex session `token_count.rate_limits` | `exact`     | API background indexing tails persisted Codex session logs into SQLite (`codex_limit_heads`/`codex_limit_history`); `/runtime-profiles` overlays read from that index instead of per-request filesystem scans |
+| OpenRouter API      | OpenAI-compatible rate-limit headers    | `exact`     | Uses `x-ratelimit-*` / `retry-after` when the upstream provides them                                                                                                                                          |
+| OpenCode API        | structured error metadata               | `heuristic` | Preserves `resetAt` / retry hints on rate-limit errors, but no proactive normalized snapshot is emitted today                                                                                                 |
 
 Auto-pause semantics follow the precision:
 
@@ -261,66 +261,57 @@ Invalid `options.approvalPolicy` / `options.sandboxMode` values are ignored with
 
 ### Codex OAuth login in Docker (broker)
 
-Running `codex login` directly inside the `agent` container starts an HTTP
-listener on `127.0.0.1:1455` waiting for the OAuth callback. Because container
-loopback is not reachable from the host browser, the flow stalls. As of
-codex `0.118`, the CLI does not expose a flag to bind the listener to another
-interface (verified against `codex login --help`).
+`codex login --device-auth` (codex-cli v0.124.0+) prints a fixed verification
+URL plus a one-time code. The user opens the URL in the host browser, enters
+the code, completes ChatGPT sign-in — the CLI exits 0 and writes
+`~/.codex/auth.json` inside the container. No loopback callback, no port
+binding, no host bridging.
 
-To bridge this, the agent ships a small HTTP broker (`packages/agent/src/codex/loginBroker.ts`)
-that runs alongside the coordinator when `AIF_ENABLE_CODEX_LOGIN_PROXY=true`:
+The agent ships a small HTTP broker (`packages/agent/src/codex/loginBroker.ts`)
+that wraps this flow when `AIF_ENABLE_CODEX_LOGIN_PROXY=true`:
 
 ```
-[Browser]
-  ├─ GET auth URL → ChatGPT OAuth
-  └─ redirect: http://localhost:1455/?code=…&state=…  (fails on host)
-  ▼ user copies URL into the UI
-[API /auth/codex/login/*]  (zod + SSRF guard)
+[API /auth/codex/login/*]
   ▼ proxies over docker network
 [Agent :3010 broker]
-  ├─ start    → spawn `codex login`, parse auth URL
-  ├─ callback → fetch 127.0.0.1:1455/?code=…&state=…  (own loopback)
-  └─ cancel   → SIGTERM child
+  ├─ start  → spawn `codex login --device-auth`,
+  │           parse stdout for verification URL + code,
+  │           expose them on /status
+  ├─ status → { active, sessionId, verificationUrl, userCode, startedAt }
+  └─ cancel → SIGTERM child
 ```
+
+The CLI exits naturally when the user finishes the browser flow; the broker
+clears the active session on the child `exit` event and `/status` flips to
+`{ active: false }`. The web UI polls `/status` to detect completion.
 
 **Endpoints** (api-side, all behind the feature flag):
 
-| Method | Path                         | Purpose                                             |
-| ------ | ---------------------------- | --------------------------------------------------- |
-| GET    | `/auth/codex/capabilities`   | Always mounted. Returns `{loginProxyEnabled}`.      |
-| POST   | `/auth/codex/login/start`    | Spawn `codex login`, return the auth URL.           |
-| POST   | `/auth/codex/login/callback` | Forward the user-pasted redirect URL to the broker. |
-| POST   | `/auth/codex/login/cancel`   | SIGTERM the active child process.                   |
-| GET    | `/auth/codex/login/status`   | Poll while a session is active.                     |
+| Method | Path                       | Purpose                                                         |
+| ------ | -------------------------- | --------------------------------------------------------------- |
+| GET    | `/auth/codex/capabilities` | Always mounted. Returns `{loginProxyEnabled}`.                  |
+| POST   | `/auth/codex/login/start`  | Spawn the CLI, return `{verificationUrl, userCode, ...}`.       |
+| POST   | `/auth/codex/login/cancel` | SIGTERM the active child process.                               |
+| GET    | `/auth/codex/login/status` | Poll for active/inactive + the current code + verification URL. |
 
-**Security guards** (defence in depth — enforced in **both** api and broker):
+**Security:**
 
-- `scheme = http`, `host ∈ {127.0.0.1, localhost}`, `port = AIF_CODEX_LOGIN_LOOPBACK_PORT` (default `1455`).
-- Query must include both `code` and `state`; `state` must match what the broker captured from the spawned CLI.
 - One-shot session: repeat `start` without `cancel`/success → `409 session_already_active`.
 - Broker binds `0.0.0.0:3010` but is **not** port-mapped to the host in compose; only services on the same docker network can reach it.
-- Logs redact `code` / `state` before write (`***redacted***`).
+- Logs mask all but the last 2 characters of the one-time code (`maskUserCode`).
+- No user-supplied URL is ever forwarded — there is no callback endpoint to abuse.
 
 **Environment variables:**
 
-| Variable                        | Default             | Purpose                                          |
-| ------------------------------- | ------------------- | ------------------------------------------------ |
-| `AIF_ENABLE_CODEX_LOGIN_PROXY`  | `false`             | Enable broker + `/auth/codex/*` routes.          |
-| `AIF_CODEX_LOGIN_BROKER_PORT`   | `3010`              | Port the broker listens on inside the container. |
-| `AIF_CODEX_LOGIN_LOOPBACK_PORT` | `1455`              | Port the codex CLI binds for its callback.       |
-| `AGENT_INTERNAL_URL`            | `http://agent:3010` | Base URL the api uses to reach the broker.       |
+| Variable                       | Default             | Purpose                                          |
+| ------------------------------ | ------------------- | ------------------------------------------------ |
+| `AIF_ENABLE_CODEX_LOGIN_PROXY` | `false`             | Enable broker + `/auth/codex/*` routes.          |
+| `AIF_CODEX_LOGIN_BROKER_PORT`  | `3010`              | Port the broker listens on inside the container. |
+| `AGENT_INTERNAL_URL`           | `http://agent:3010` | Base URL the api uses to reach the broker.       |
 
 **Production guidance:** the broker is a dev-only convenience. In production,
 set `AIF_ENABLE_CODEX_LOGIN_PROXY=false` (the default in `docker-compose.production.yml`)
 and provision `OPENAI_API_KEY` via `.env` instead.
-
-**Fallback CLI:** the agent image ships a helper at `/usr/local/bin/aif-codex-callback`
-that validates the callback URL (same allowlist) and forwards it to the codex
-loopback. Use it when the broker or UI is unavailable:
-
-```bash
-docker compose exec agent aif-codex-callback "http://localhost:1455/?code=…&state=…"
-```
 
 ### Bypass semantics (AGENT_BYPASS_PERMISSIONS)
 

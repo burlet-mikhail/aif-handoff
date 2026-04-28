@@ -7,7 +7,7 @@ export default defineConfig({
         inline: ["@aif/shared", "@anthropic-ai/claude-agent-sdk"],
       },
     },
-    exclude: ["dist/**", "**/node_modules/**", "**/.git/**"],
+    exclude: ["dist/**", "**/node_modules/**", "**/.git/**", "**/*SFConflict*"],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "json-summary"],
@@ -18,6 +18,7 @@ export default defineConfig({
         "src/adapters/TEMPLATE.ts",
         // Integration-heavy transport probe is covered by adapter unit tests around public API.
         "src/adapters/codex/modelDiscovery.ts",
+        "src/**/*SFConflict*",
       ],
       thresholds: {
         lines: 70,

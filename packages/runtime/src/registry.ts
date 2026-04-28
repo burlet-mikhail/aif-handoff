@@ -45,7 +45,7 @@ export interface RuntimeRegistryOptions {
 function createFallbackLogger(): RuntimeRegistryLogger {
   return {
     debug(context, message) {
-      console.debug("DEBUG [runtime-registry]", message, context);
+      console.debug("[runtime-registry]", message, context);
     },
     warn(context, message) {
       console.warn("WARN [runtime-module]", message, context);

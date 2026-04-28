@@ -25,7 +25,7 @@ export const scheduledAtSchema = z
 const taskAttachmentSchema = z.object({
   name: z.string().min(1).max(500),
   mimeType: z.string().max(200),
-  size: z.number().int().min(0).max(10_000_000),
+  size: z.number().int().min(0).max(100_000_000),
   content: z.string().max(2_000_000).nullable(),
   /** Relative path in storage/ — present for file-backed attachments */
   path: z.string().max(1000).optional(),
@@ -49,7 +49,7 @@ export const createTaskSchema = z.object({
   projectId: z.string().min(1, "Project ID is required"),
   title: z.string().min(1, "Title is required").max(500),
   description: z.string().default(""),
-  attachments: z.array(taskAttachmentSchema).max(10).default([]),
+  attachments: z.array(taskAttachmentSchema).max(100).default([]),
   priority: z.number().int().min(0).max(5).default(0),
   autoMode: z.boolean().default(true),
   isFix: z.boolean().default(false),
@@ -77,7 +77,7 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.string().optional(),
-  attachments: z.array(taskAttachmentSchema).max(10).optional(),
+  attachments: z.array(taskAttachmentSchema).max(100).optional(),
   priority: z.number().int().min(0).max(5).optional(),
   autoMode: z.boolean().optional(),
   isFix: z.boolean().optional(),
@@ -115,7 +115,7 @@ export const taskEventSchema = z.object({
 
 export const createTaskCommentSchema = z.object({
   message: z.string().min(1, "Comment message is required").max(20_000),
-  attachments: z.array(taskAttachmentSchema).max(10).default([]),
+  attachments: z.array(taskAttachmentSchema).max(100).default([]),
 });
 
 export const reorderTaskSchema = z.object({
@@ -178,7 +178,7 @@ export const updateAppRuntimeDefaultsSchema = z
 export const chatAttachmentSchema = z.object({
   name: z.string().min(1).max(500),
   mimeType: z.string().max(200),
-  size: z.number().int().min(0).max(10_000_000),
+  size: z.number().int().min(0).max(100_000_000),
   content: z.string().max(2_000_000).nullable(),
 });
 
@@ -191,7 +191,7 @@ export const chatRequestSchema = z.object({
   explore: z.boolean().default(false),
   taskId: z.string().optional(),
   runtimeProfileId: z.string().min(1).nullable().optional(),
-  attachments: z.array(chatAttachmentSchema).max(5).optional(),
+  attachments: z.array(chatAttachmentSchema).max(100).optional(),
 });
 
 const runtimeHeadersSchema = z.record(z.string(), z.string());
@@ -255,48 +255,3 @@ export const runtimeProfileListQuerySchema = z.object({
   enabledOnly: z.string().optional(),
   scope: z.enum(["global", "project", "visible"]).optional(),
 });
-/**
- * Strict allowlist schema for the Codex login callback URL the user pastes in
- * the UI. Both the api and the agent broker validate this — double protection.
- * Only http://127.0.0.1|localhost:{loopbackPort}/?code=…&state=… is accepted.
- */
-export const codexCallbackSchema = z
-  .object({
-    url: z.string().min(1, "url is required").max(4096),
-  })
-  .superRefine((value, ctx) => {
-    const env = getEnv();
-    const expectedPort = env.AIF_CODEX_LOGIN_LOOPBACK_PORT;
-    let parsed: URL;
-    try {
-      parsed = new URL(value.url);
-    } catch {
-      ctx.addIssue({
-        code: "custom",
-        path: ["url"],
-        message: "invalid_url",
-      });
-      return;
-    }
-
-    if (parsed.protocol !== "http:") {
-      ctx.addIssue({ code: "custom", path: ["url"], message: "scheme_not_allowed" });
-    }
-
-    const allowedHosts = new Set(["127.0.0.1", "localhost"]);
-    if (!allowedHosts.has(parsed.hostname)) {
-      ctx.addIssue({ code: "custom", path: ["url"], message: "host_not_allowed" });
-    }
-
-    const port = parsed.port ? Number(parsed.port) : 80;
-    if (port !== expectedPort) {
-      ctx.addIssue({ code: "custom", path: ["url"], message: "port_not_allowed" });
-    }
-
-    if (!parsed.searchParams.get("code")) {
-      ctx.addIssue({ code: "custom", path: ["url"], message: "missing_code" });
-    }
-    if (!parsed.searchParams.get("state")) {
-      ctx.addIssue({ code: "custom", path: ["url"], message: "missing_state" });
-    }
-  });

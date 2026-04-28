@@ -77,7 +77,7 @@ const DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS = 8_000;
 function createFallbackLogger(): ClaudeRuntimeAdapterLogger {
   return {
     debug(context, message) {
-      console.debug("DEBUG [runtime:claude]", message, context);
+      console.debug("[runtime:claude]", message, context);
     },
     info(context, message) {
       console.info("INFO [runtime:claude]", message, context);
@@ -308,7 +308,7 @@ async function listClaudeModels(
       hasAnthropicApiKey: Boolean(envRecord.ANTHROPIC_API_KEY),
       hasBaseUrl: typeof envRecord.ANTHROPIC_BASE_URL === "string",
     },
-    "DEBUG [runtime:claude] Starting Claude model discovery",
+    "[runtime:claude] Starting Claude model discovery",
   );
   let session: ReturnType<typeof query> | null = null;
   const discoveryStartedAt = Date.now();
@@ -338,7 +338,7 @@ async function listClaudeModels(
         discoveryDurationMs: Date.now() - discoveryStartedAt,
         timeoutMs,
       },
-      "DEBUG [runtime:claude] Claude model discovery finished",
+      "[runtime:claude] Claude model discovery finished",
     );
     if (models.length > 0) {
       return models.map((model) => ({

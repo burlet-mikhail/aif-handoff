@@ -57,7 +57,7 @@ export async function startCodexAppServerWithRetry(
       blockedEnvCount: envResult.blockedCount,
       droppedDisallowedPrefixCount: envResult.droppedDisallowedPrefixKeys.length,
     },
-    "DEBUG [runtime:codex] Built app-server discovery environment from curated allowlist",
+    "[runtime:codex] Built app-server discovery environment from curated allowlist",
   );
   if (envResult.droppedDisallowedPrefixKeys.length > 0) {
     logger?.warn?.(
@@ -85,7 +85,7 @@ export async function startCodexAppServerWithRetry(
         attempt,
         maxAttempts: DEFAULT_APP_SERVER_STARTUP_ATTEMPTS,
       },
-      "DEBUG [runtime:codex] Reserved Codex app-server startup port",
+      "[runtime:codex] Reserved Codex app-server startup port",
     );
 
     const launch = deps.spawnCodexAppServer(executablePath, listenUrl, input.projectRoot, env);
@@ -103,7 +103,7 @@ export async function startCodexAppServerWithRetry(
         attempt,
         maxAttempts: DEFAULT_APP_SERVER_STARTUP_ATTEMPTS,
       },
-      "DEBUG [runtime:codex] Starting Codex app-server model discovery",
+      "[runtime:codex] Starting Codex app-server model discovery",
     );
 
     try {
@@ -228,7 +228,7 @@ export async function listCodexAppServerModels(
         executablePath,
         modelCount: discovered.length,
       },
-      "DEBUG [runtime:codex] Fetched model list from Codex app-server",
+      "[runtime:codex] Fetched model list from Codex app-server",
     );
 
     return enrichCodexDiscoveredModels(discovered);

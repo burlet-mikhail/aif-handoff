@@ -1,0 +1,125 @@
+# Drop into your repo at .github/workflows/ai-review.yml.
+# Posts a signed webhook to the AI Review Runner on:
+#   1. PR opened — automatic first review.
+#   2. A trusted user posts one of these slash commands in a PR comment:
+#        /code-review            → review only
+#        /fix                    → apply fixes for the latest review verdict
+#        /code-review-and-fix    → review then fix (chained)
+#
+# Required secrets in the repo (or org):
+#   RUNNER_HMAC_SECRET   — same value the runner has at RUNNER_HMAC_SECRET / _FILE.
+#   RUNNER_URL           — e.g. https://runner.example.com/review
+#   RUNNER_GH_PAT        — fine-grained PAT with:
+#                            Contents:        Read   (review-only repos)
+#                            Contents:        Read & Write   (when /fix is enabled — push to PR branch)
+#                            Pull requests:   Read & Write
+#                            Issues:          Read & Write
+#                            Metadata:        Read
+#                          See README / DEPLOY.md for why GITHUB_TOKEN won't work
+#                          (it's revoked when this workflow job ends, but the
+#                          runner needs the token 30–180 s later.)
+#
+# Edit the TRUSTED list below to control who can re-trigger via comment.
+
+name: AI Review
+
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: read
+
+jobs:
+  ai-review:
+    # Trigger on:
+    #   - PR opened (automatic first review)
+    #   - issue_comment on a PR, by a trusted user, containing one of the
+    #     slash commands. Order in the if() matters only for documentation;
+    #     `contains()` is unordered.
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       github.event.sender.type != 'Bot' &&
+       contains(fromJSON('["lee-to"]'), github.event.sender.login) &&
+       (contains(github.event.comment.body, '/code-review-and-fix') ||
+        contains(github.event.comment.body, '/code-review') ||
+        contains(github.event.comment.body, '/fix')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send signed webhook
+        env:
+          RUNNER_URL: ${{ secrets.RUNNER_URL }}
+          RUNNER_HMAC_SECRET: ${{ secrets.RUNNER_HMAC_SECRET }}
+          # PAT, NOT secrets.GITHUB_TOKEN — that one expires when the job
+          # finishes, but the runner needs the token 30–180 s later.
+          GH_TOKEN: ${{ secrets.RUNNER_GH_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+
+          # PR number + head_sha differ between event types.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            ACTION="review"
+          else
+            PR_NUMBER="${{ github.event.issue.number }}"
+            HEAD_SHA=$(gh pr view "${PR_NUMBER}" \
+                --repo "${REPO}" \
+                --json headRefOid -q .headRefOid)
+
+            # Map slash → action. Check the LONGEST match first so
+            # `/code-review` doesn't shadow `/code-review-and-fix`.
+            COMMENT="${{ github.event.comment.body }}"
+            if [[ "$COMMENT" == *"/code-review-and-fix"* ]]; then
+              ACTION="review-and-fix"
+            elif [[ "$COMMENT" == *"/fix"* ]]; then
+              ACTION="fix"
+            elif [[ "$COMMENT" == *"/code-review"* ]]; then
+              ACTION="review"
+            else
+              # `if:` already filtered, but stay defensive.
+              echo "::warning::no slash command matched; skipping"
+              exit 0
+            fi
+          fi
+
+          TS="$(date +%s)"
+
+          # Build payload — keep this single-line JSON; the runner verifies HMAC
+          # over `<ts>.<rawBody>` byte-for-byte.
+          BODY="$(jq -nc \
+            --arg action "${ACTION}" \
+            --arg repo "${REPO}" \
+            --argjson pr ${PR_NUMBER} \
+            --arg sha "${HEAD_SHA}" \
+            --arg tok "${GH_TOKEN}" \
+            --argjson ts ${TS} \
+            '{action: $action, repo: $repo, pr_number: $pr, head_sha: $sha, gh_token: $tok, ts: $ts}')"
+
+          # X-Signature = sha256= + HMAC( "<ts>." + BODY )
+          SIG="sha256=$(printf '%s.%s' "${TS}" "${BODY}" \
+            | openssl dgst -sha256 -hmac "${RUNNER_HMAC_SECRET}" -hex \
+            | awk '{print $2}')"
+
+          # POST and capture status; fail the workflow on >= 400 from the runner.
+          HTTP_CODE=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -X POST "${RUNNER_URL}" \
+              -H "Content-Type: application/json" \
+              -H "X-Signature: ${SIG}" \
+              -H "X-Timestamp: ${TS}" \
+              --data-raw "${BODY}")
+          echo "runner http: ${HTTP_CODE} (action=${ACTION})"
+          cat /tmp/resp.json || true
+          if [ "${HTTP_CODE}" -ge 400 ]; then
+              echo "::error::Runner returned ${HTTP_CODE}"
+              exit 1
+          fi

@@ -463,6 +463,16 @@ The config is editable via the **Global Settings** dialog in the web UI (gear ic
 | `skip_push_after_commit` | `false`    | Skip push after /aif-commit                     |
 | `strict_base_update`     | `false`    | Hard-fail if `git pull --ff-only` of base fails |
 
+When `config.yaml` is absent, Handoff treats the base branch as repository
+discovery: it first checks the branch pointed to by `refs/remotes/origin/HEAD`,
+creating a same-named local branch from `origin/<branch>` when only the remote
+ref exists, with upstream tracking when Git can infer the remote relationship,
+then falls back to the legacy `master` branch, and only then to the built-in
+`main` default. When `base_branch` is explicitly configured and still points to
+the default `main`, but the local repository does not have `main`, Handoff uses
+the same `origin/HEAD` then `master` fallback. Explicit non-default base
+branches are strict: if you set `base_branch: develop`, that branch must exist.
+
 #### `skip_push_after_commit` semantics
 
 Controls whether the approve-done auto-commit flow (and any other `/aif-commit` run originating from the API) performs `git push` after creating the commit:

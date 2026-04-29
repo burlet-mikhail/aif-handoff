@@ -233,6 +233,93 @@ describe("gitIsolation", () => {
   );
 
   it(
+    "falls back to master when the default main base is missing",
+    () => {
+      initRepo(projectRoot);
+      git(projectRoot, ["branch", "-M", "master"]);
+      writeConfig(projectRoot, "git:\n  base_branch: main\n  branch_prefix: feature/\n");
+
+      const result = ensureFeatureBranch({
+        projectRoot,
+        taskId: "task-master",
+        title: "Master default",
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.branchName).toBe("feature/master-default-taskma");
+      expect(getCurrentBranch(projectRoot)).toBe("feature/master-default-taskma");
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "falls back to origin HEAD before legacy master when the default main base is missing",
+    () => {
+      initRepo(projectRoot);
+      git(projectRoot, ["checkout", "-b", "2.x"]);
+      writeFileSync(join(projectRoot, "release.txt"), "2.x\n");
+      git(projectRoot, ["add", "release.txt"]);
+      git(projectRoot, ["commit", "-m", "release branch"]);
+      git(projectRoot, ["update-ref", "refs/remotes/origin/2.x", "2.x"]);
+      git(projectRoot, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/2.x"]);
+      git(projectRoot, ["checkout", "-b", "master"]);
+      writeFileSync(join(projectRoot, "master.txt"), "master\n");
+      git(projectRoot, ["add", "master.txt"]);
+      git(projectRoot, ["commit", "-m", "master branch"]);
+      git(projectRoot, ["branch", "-D", "main"]);
+      git(projectRoot, ["branch", "-D", "2.x"]);
+      writeConfig(projectRoot, "git:\n  base_branch: main\n  branch_prefix: feature/\n");
+
+      const result = ensureFeatureBranch({
+        projectRoot,
+        taskId: "task-origin",
+        title: "Origin default",
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.branchName).toBe("feature/origin-default-taskor");
+      if (!result.branchName) throw new Error("expected branch name");
+      expect(getCurrentBranch(projectRoot)).toBe("feature/origin-default-taskor");
+      const branchHead = git(projectRoot, ["rev-parse", result.branchName]);
+      const expectedHead = git(projectRoot, ["rev-parse", "refs/remotes/origin/2.x"]);
+      expect(branchHead).toBe(expectedHead);
+      expect(branchExists(projectRoot, "2.x")).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "uses origin HEAD before local main when project config is absent",
+    () => {
+      initRepo(projectRoot);
+      git(projectRoot, ["checkout", "-b", "2.x"]);
+      writeFileSync(join(projectRoot, "release.txt"), "2.x\n");
+      git(projectRoot, ["add", "release.txt"]);
+      git(projectRoot, ["commit", "-m", "release branch"]);
+      git(projectRoot, ["checkout", "main"]);
+      git(projectRoot, ["update-ref", "refs/remotes/origin/2.x", "2.x"]);
+      git(projectRoot, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/2.x"]);
+      git(projectRoot, ["branch", "-D", "2.x"]);
+
+      const result = ensureFeatureBranch({
+        projectRoot,
+        taskId: "task-no-config",
+        title: "No config",
+      });
+
+      expect(result.action).toBe("created");
+      expect(result.branchName).toBe("feature/no-config-taskno");
+      if (!result.branchName) throw new Error("expected branch name");
+      expect(getCurrentBranch(projectRoot)).toBe("feature/no-config-taskno");
+      const branchHead = git(projectRoot, ["rev-parse", result.branchName]);
+      const expectedHead = git(projectRoot, ["rev-parse", "refs/remotes/origin/2.x"]);
+      expect(branchHead).toBe(expectedHead);
+      expect(branchExists(projectRoot, "2.x")).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "returns switched when already on the task branch",
     () => {
       initRepo(projectRoot);

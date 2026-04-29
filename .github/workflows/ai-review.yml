@@ -49,7 +49,8 @@ jobs:
     # slash command structure; non-trusted senders fall through to a no-op
     # exit in the step (workflow run still appears in Actions, but skipped).
     if: |
-      github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        github.event.sender.type != 'Bot' &&
@@ -73,6 +74,11 @@ jobs:
         run: |
           set -euo pipefail
           REPO="${GITHUB_REPOSITORY}"
+
+          if [ -z "${RUNNER_URL:-}" ] || [ -z "${RUNNER_HMAC_SECRET:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::AI Review runner secrets are unavailable; skipping webhook dispatch"
+            exit 0
+          fi
 
           # PR number + head_sha + action differ between event types.
           if [ "${{ github.event_name }}" = "pull_request" ]; then

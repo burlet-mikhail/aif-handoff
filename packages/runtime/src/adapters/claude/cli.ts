@@ -7,6 +7,7 @@ import type {
   RuntimeUsage,
 } from "../../types.js";
 import { buildRuntimeLimitEvent } from "../../limitEvents.js";
+import { assertSafeWindowsShellExecutablePath } from "../../shellSafety.js";
 import {
   makeProcessRunTimeoutError,
   makeProcessStartTimeoutError,
@@ -106,6 +107,9 @@ function resolveCliPath(input: RuntimeRunInput, adapterDefault?: string): string
  */
 export function probeClaudeCli(cliPath: string): { ok: boolean; version?: string; error?: string } {
   try {
+    if (IS_WINDOWS) {
+      assertSafeWindowsShellExecutablePath(cliPath, "Claude CLI path");
+    }
     const out = execFileSync(cliPath, ["--version"], {
       timeout: 5_000,
       shell: IS_WINDOWS,
@@ -129,6 +133,7 @@ function spawnCliWindows(
   cwd: string | undefined,
   env: Record<string, string>,
 ) {
+  assertSafeWindowsShellExecutablePath(cliPath, "Claude CLI path");
   const cmd = process.env.ComSpec ?? "cmd.exe";
   const cmdLine = [cliPath, ...args.map(quoteIfNeeded)].join(" ");
   return spawn(cmd, ["/d", "/c", cmdLine], {

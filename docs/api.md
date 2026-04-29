@@ -171,6 +171,11 @@ PUT /projects/:id
 
 **Response:** `200 OK` — the updated project object.
 
+**Errors:**
+
+- `400` — Parallel auto-queue is rejected when the project config has `git.create_branches=true`.
+  Disable parallel execution, disable auto-queue mode, or set `git.create_branches=false` before using both modes together.
+
 ### Check Roadmap Status
 
 ```
@@ -276,6 +281,11 @@ clients can update their board indicator.
 ```json
 { "enabled": true }
 ```
+
+**Errors:**
+
+- `400` — Parallel auto-queue is rejected when the project config has `git.create_branches=true`.
+  Disable parallel execution, disable auto-queue mode, or set `git.create_branches=false` before using both modes together.
 
 ### Get Project MCP Config
 

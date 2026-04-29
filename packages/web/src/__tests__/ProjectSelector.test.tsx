@@ -5,6 +5,7 @@ const mockUseQuery = vi.fn();
 const mutateCreateProject = vi.fn();
 const mutateUpdateProject = vi.fn();
 const mutateDeleteProject = vi.fn();
+const mutateSetAutoQueue = vi.fn();
 const mockToast = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({
@@ -37,7 +38,7 @@ vi.mock("@/hooks/useProjects", () => ({
     mutate: mutateDeleteProject,
   }),
   useSetAutoQueueMode: () => ({
-    mutate: vi.fn(),
+    mutate: mutateSetAutoQueue,
     isPending: false,
   }),
 }));
@@ -55,6 +56,7 @@ describe("ProjectSelector", () => {
     mutateCreateProject.mockReset();
     mutateUpdateProject.mockReset();
     mutateDeleteProject.mockReset();
+    mutateSetAutoQueue.mockReset();
     mockToast.mockReset();
   });
 
@@ -129,6 +131,30 @@ describe("ProjectSelector", () => {
     );
   });
 
+  it("shows error toast when project update fails", () => {
+    mockUseQuery.mockReturnValue({ data: undefined, isLoading: false });
+
+    mutateUpdateProject.mockImplementation(
+      (_input: unknown, options: { onError?: (error: Error) => void }) => {
+        options.onError?.(
+          new Error("Parallel auto-queue with git.create_branches=true is not supported"),
+        );
+      },
+    );
+
+    render(<ProjectSelector selectedId="p-1" onSelect={() => {}} onDeselect={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /alpha/i }));
+    fireEvent.click(screen.getByTitle("Edit"));
+    fireEvent.click(screen.getByText("Save"));
+
+    expect(mockToast).toHaveBeenCalledWith(
+      "Parallel auto-queue with git.create_branches=true is not supported",
+      "error",
+      8000,
+    );
+  });
+
   describe("auto-queue toggle", () => {
     it("renders Auto-Queue Mode switch in create dialog", () => {
       mockUseQuery.mockReturnValue({ data: undefined, isLoading: false });
@@ -152,6 +178,40 @@ describe("ProjectSelector", () => {
 
       expect(screen.getByText("Parallel Execution")).toBeDefined();
       expect(screen.getByText("Auto-Queue Mode")).toBeDefined();
+    });
+
+    it("shows error toast when enabling auto-queue fails after create", () => {
+      mockUseQuery.mockReturnValue({ data: undefined, isLoading: false });
+      mutateCreateProject.mockImplementation(
+        (_input: unknown, options: { onSuccess?: (project: { id: string }) => void }) => {
+          options.onSuccess?.({ id: "created-project" });
+        },
+      );
+      mutateSetAutoQueue.mockImplementation(
+        (_input: unknown, options: { onError?: (error: Error) => void }) => {
+          options.onError?.(
+            new Error("Parallel auto-queue with git.create_branches=true is not supported"),
+          );
+        },
+      );
+
+      render(<ProjectSelector selectedId="p-1" onSelect={() => {}} onDeselect={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: /alpha/i }));
+      fireEvent.click(screen.getByText("New project"));
+      fireEvent.change(screen.getByPlaceholderText("My Project"), {
+        target: { value: "Test Project" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("/Users/me/projects/my-project"), {
+        target: { value: "/tmp/test-project" },
+      });
+      fireEvent.click(screen.getAllByRole("switch")[1]);
+      fireEvent.click(screen.getByText("Create"));
+
+      expect(mockToast).toHaveBeenCalledWith(
+        "Parallel auto-queue with git.create_branches=true is not supported",
+        "error",
+        8000,
+      );
     });
   });
 });

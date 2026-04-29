@@ -2,6 +2,7 @@ import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "n
 import { createRequire } from "node:module";
 import path from "node:path";
 import { RuntimeTransport } from "../../../types.js";
+import { buildSafeWindowsShellCommandLine } from "../../../shellSafety.js";
 
 const IS_WINDOWS = process.platform === "win32";
 const moduleRequire = createRequire(import.meta.url);
@@ -419,18 +420,5 @@ async function waitForExit(
 }
 
 export function buildWindowsAppServerCommandLine(executablePath: string, args: string[]): string {
-  return [executablePath, ...args].map(quoteSafeWindowsShellArg).join(" ");
-}
-
-function quoteSafeWindowsShellArg(arg: string): string {
-  assertSafeWindowsShellArg(arg);
-  return /[\s()]/.test(arg) ? `"${arg}"` : arg;
-}
-
-function assertSafeWindowsShellArg(arg: string): void {
-  if (/[\r\n&|<>^%"]/.test(arg)) {
-    throw new Error(
-      "Unsafe Codex app-server command argument contains Windows shell metacharacters",
-    );
-  }
+  return buildSafeWindowsShellCommandLine(executablePath, args, "Codex app-server");
 }

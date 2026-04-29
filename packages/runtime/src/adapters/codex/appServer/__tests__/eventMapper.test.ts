@@ -247,6 +247,41 @@ describe("codex app-server event mapper", () => {
     expect((approvalEvent?.data as Record<string, unknown>).nested).not.toHaveProperty("analysis");
   });
 
+  it("returns explicit denial responses for every known approval server request", () => {
+    const warn = vi.fn();
+    const mapper = new CodexAppServerEventMapper({
+      input: createInput(),
+      logger: { warn },
+    });
+
+    const cases: Array<[string, unknown]> = [
+      ["item/commandExecution/requestApproval", { decision: "decline" }],
+      ["item/fileChange/requestApproval", { decision: "decline" }],
+      ["item/permissions/requestApproval", { permissions: {}, scope: "turn" }],
+      ["applyPatchApproval", { decision: "denied" }],
+      ["execCommandApproval", { decision: "denied" }],
+    ];
+
+    for (const [method, expected] of cases) {
+      expect(
+        mapper.handleServerRequest(method, {
+          command: "npm test",
+          reasoning: "private",
+          nested: { analysis: "private", safe: "visible" },
+        }),
+      ).toEqual(expected);
+    }
+
+    const approvalEvents = mapper.getEvents().filter((event) => event.type === "approval:request");
+    expect(approvalEvents).toHaveLength(cases.length);
+    expect(approvalEvents.at(-1)?.data).toMatchObject({
+      command: "npm test",
+      nested: { safe: "visible" },
+    });
+    expect(approvalEvents.at(-1)?.data).not.toHaveProperty("reasoning");
+    expect(warn).toHaveBeenCalledTimes(cases.length);
+  });
+
   it("captures usage on turn completion and propagates turn failures", () => {
     const onTurnCompleted = vi.fn();
     const onTurnFailed = vi.fn();

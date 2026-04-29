@@ -163,7 +163,7 @@ describe("codex app-server session discovery", () => {
         limit: 10,
         options: {
           testScenario: "session-discovery-hang",
-          appServerRequestTimeoutMs: 500,
+          appServerRequestTimeoutMs: 2_000,
         },
       }),
     ).rejects.toThrow("Timed out waiting for JSONL RPC response");

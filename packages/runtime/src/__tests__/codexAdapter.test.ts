@@ -262,6 +262,25 @@ describe("Codex runtime adapter", () => {
     expect(terminateCodexAppServerProcessMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects unsafe app-server cli paths during CLI validation before spawning app-server", async () => {
+    probeCodexCliMock.mockReturnValueOnce({
+      ok: false,
+      error: "Unsafe Codex CLI path contains Windows shell metacharacters",
+    });
+    const adapter = createCodexRuntimeAdapter();
+
+    const result = await adapter.validateConnection!({
+      runtimeId: "codex",
+      providerId: "openai",
+      transport: "app-server" as never,
+      options: { codexCliPath: "codex&calc" },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Unsafe Codex CLI path contains Windows shell metacharacters");
+    expect(spawnCodexAppServerProcessMock).not.toHaveBeenCalled();
+  });
+
   it("returns install/auth hint when app-server initialize handshake fails", async () => {
     const adapter = createCodexRuntimeAdapter();
     const handshakeError = new Error("unauthorized");

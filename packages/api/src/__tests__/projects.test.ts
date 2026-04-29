@@ -234,6 +234,35 @@ describe("projects API", () => {
     expect(body.rootPath).toBe("/workspace/demo");
   });
 
+  it("rejects enabling parallel execution when auto-queue is already enabled and git.create_branches is true", async () => {
+    const rootPath = mkdtempSync(join(tmpdir(), "aif-parallel-auto-queue-"));
+    testDb.current
+      .insert(projects)
+      .values({
+        id: "branch-auto-queue",
+        name: "Branch Auto Queue",
+        rootPath,
+        autoQueueMode: true,
+      })
+      .run();
+
+    const res = await app.request("/projects/branch-auto-queue", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Branch Auto Queue",
+        rootPath,
+        parallelEnabled: true,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Parallel auto-queue with git.create_branches=true");
+    expect(body.error).toContain("disable parallel execution");
+    expect(body.error).toContain("set git.create_branches=false");
+  });
+
   it("returns MCP servers from .mcp.json", async () => {
     const rootPath = mkdtempSync(join(tmpdir(), "aif-mcp-"));
     writeFileSync(
@@ -687,6 +716,57 @@ describe("projects API", () => {
       expect(await res.json()).toEqual({ enabled: true });
       const get = await app.request("/projects/p-1/auto-queue-mode");
       expect(await get.json()).toEqual({ enabled: true });
+    });
+
+    it("PATCH rejects enabling auto-queue for parallel projects with git.create_branches=true", async () => {
+      const rootPath = mkdtempSync(join(tmpdir(), "aif-auto-queue-branch-"));
+      testDb.current
+        .insert(projects)
+        .values({
+          id: "p-branch",
+          name: "Branch Project",
+          rootPath,
+          parallelEnabled: true,
+        })
+        .run();
+
+      const res = await app.request("/projects/p-branch/auto-queue-mode", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain("Parallel auto-queue with git.create_branches=true");
+      expect(body.error).toContain("disable auto-queue mode");
+    });
+
+    it("PATCH allows parallel auto-queue when git.create_branches=false", async () => {
+      const rootPath = mkdtempSync(join(tmpdir(), "aif-auto-queue-no-branch-"));
+      mkdirSync(join(rootPath, ".ai-factory"), { recursive: true });
+      writeFileSync(
+        join(rootPath, ".ai-factory", "config.yaml"),
+        "git:\n  create_branches: false\n",
+      );
+      testDb.current
+        .insert(projects)
+        .values({
+          id: "p-no-branch",
+          name: "No Branch Project",
+          rootPath,
+          parallelEnabled: true,
+        })
+        .run();
+
+      const res = await app.request("/projects/p-no-branch/auto-queue-mode", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ enabled: true });
     });
 
     it("PATCH rejects invalid body", async () => {

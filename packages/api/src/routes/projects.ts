@@ -35,6 +35,24 @@ const log = logger("projects-route");
 
 export const projectsRouter = new Hono();
 
+const PARALLEL_AUTO_QUEUE_BRANCH_ERROR =
+  "Parallel auto-queue with git.create_branches=true is not supported without worktrees. Either disable parallel execution, disable auto-queue mode, or set git.create_branches=false for this project.";
+
+function validateParallelAutoQueueBranchConfig(input: {
+  rootPath: string;
+  parallelEnabled: boolean;
+  autoQueueMode: boolean;
+}): string | null {
+  if (!input.parallelEnabled || !input.autoQueueMode) return null;
+
+  const config = getProjectConfig(input.rootPath);
+  if (config.git.enabled && config.git.create_branches) {
+    return PARALLEL_AUTO_QUEUE_BRANCH_ERROR;
+  }
+
+  return null;
+}
+
 // GET /projects
 projectsRouter.get("/", (c) => {
   const all = listProjects();
@@ -93,6 +111,16 @@ projectsRouter.put("/:id", jsonValidator(createProjectSchema), async (c) => {
       "Rejected invalid project defaults",
     );
     return c.json(runtimeValidation, 400);
+  }
+
+  const parallelAutoQueueError = validateParallelAutoQueueBranchConfig({
+    rootPath: body.rootPath,
+    parallelEnabled: body.parallelEnabled ?? false,
+    autoQueueMode: existing.autoQueueMode,
+  });
+  if (parallelAutoQueueError) {
+    log.warn({ projectId: id }, "Rejected unsupported parallel auto-queue branch config");
+    return c.json({ error: parallelAutoQueueError }, 400);
   }
 
   const { project: updated, pathError } = updateProject(id, body);
@@ -240,6 +268,16 @@ projectsRouter.patch("/:id/auto-queue-mode", jsonValidator(autoQueueModeSchema),
   const { enabled } = c.req.valid("json");
   const project = findProjectById(id);
   if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const parallelAutoQueueError = validateParallelAutoQueueBranchConfig({
+    rootPath: project.rootPath,
+    parallelEnabled: project.parallelEnabled,
+    autoQueueMode: enabled,
+  });
+  if (parallelAutoQueueError) {
+    log.warn({ projectId: id }, "Rejected unsupported parallel auto-queue branch config");
+    return c.json({ error: parallelAutoQueueError }, 400);
+  }
 
   setAutoQueueMode(id, enabled);
   const updated = findProjectById(id);

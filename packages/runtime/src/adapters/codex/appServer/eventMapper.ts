@@ -269,6 +269,8 @@ export class CodexAppServerEventMapper {
       case "item/commandExecution/requestApproval":
       case "item/fileChange/requestApproval":
       case "item/permissions/requestApproval":
+      case "applyPatchApproval":
+      case "execCommandApproval":
       case "turn.approval_requested":
       case "approval.requested": {
         this.emitApprovalRequest(payload, nowIso);
@@ -326,6 +328,10 @@ export class CodexAppServerEventMapper {
         return { decision: "decline" };
       case "item/permissions/requestApproval":
         return { permissions: {}, scope: "turn" };
+      case "applyPatchApproval":
+        return { decision: "denied" };
+      case "execCommandApproval":
+        return { decision: "denied" };
       default:
         throw new Error(`Unsupported Codex app-server request: ${method}`);
     }

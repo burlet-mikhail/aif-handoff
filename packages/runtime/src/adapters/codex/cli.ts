@@ -10,6 +10,7 @@ import {
 } from "../../timeouts.js";
 import { classifyCodexRuntimeError } from "./errors.js";
 import { getCodexSessionLimitSnapshot } from "./sessions.js";
+import { assertSafeWindowsShellExecutablePath } from "../../shellSafety.js";
 import {
   normalizeCodexApprovalPolicy,
   normalizeCodexSandboxMode,
@@ -295,6 +296,9 @@ function resolveCliPath(input: RuntimeRunInput): string {
  */
 export function probeCodexCli(cliPath: string): { ok: boolean; version?: string; error?: string } {
   try {
+    if (IS_WINDOWS) {
+      assertSafeWindowsShellExecutablePath(cliPath, "Codex CLI path");
+    }
     const out = execFileSync(cliPath, ["--version"], {
       timeout: 5_000,
       shell: IS_WINDOWS,
@@ -330,6 +334,7 @@ function spawnCliWindows(
   cwd: string | undefined,
   env: Record<string, string>,
 ) {
+  assertSafeWindowsShellExecutablePath(cliPath, "Codex CLI path");
   const cmd = process.env.ComSpec ?? "cmd.exe";
   const cmdLine = [cliPath, ...args.map(quoteIfNeeded)].join(" ");
   return spawn(cmd, ["/d", "/c", cmdLine], {

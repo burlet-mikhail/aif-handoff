@@ -119,6 +119,7 @@ function ensureTables(sqlite: Database.Database): void {
       locked_until TEXT,
       scheduled_at TEXT,
       branch_name TEXT,
+      worktree_path TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
@@ -647,6 +648,11 @@ const MIGRATIONS: Migration[] = [
     description:
       "Persist feature branch name per task so HANDOFF_MODE auto-queue can route implementer back to the right branch",
     sql: "ALTER TABLE tasks ADD COLUMN branch_name TEXT",
+  },
+  {
+    version: 20,
+    description: "Persist per-task git worktree path for parallel auto-queue isolation",
+    sql: "ALTER TABLE tasks ADD COLUMN worktree_path TEXT",
   },
 ];
 

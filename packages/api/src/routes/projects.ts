@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { jsonValidator } from "../middleware/zodValidator.js";
 import { internalBroadcastAuth } from "../middleware/internalBroadcastAuth.js";
-import { logger, getProjectConfig } from "@aif/shared";
+import { logger, getEnv, getProjectConfig } from "@aif/shared";
 import { findRuntimeProfileById, findTaskById } from "@aif/data";
 import {
   createProjectSchema,
@@ -34,6 +34,18 @@ import { validateProjectScopedRuntimeProfileSelections } from "../services/runti
 const log = logger("projects-route");
 
 export const projectsRouter = new Hono();
+
+function rejectsParallelAutoQueueWithBranches(input: {
+  rootPath: string;
+  parallelEnabled: boolean;
+  autoQueueMode: boolean;
+}): string | null {
+  if (getEnv().AIF_TASK_WORKTREES_ENABLED) return null;
+  if (!input.parallelEnabled || !input.autoQueueMode) return null;
+  const config = getProjectConfig(input.rootPath);
+  if (!config.git.enabled || !config.git.create_branches) return null;
+  return "Parallel auto-queue with git.create_branches=true requires AIF_TASK_WORKTREES_ENABLED=true";
+}
 
 // GET /projects
 projectsRouter.get("/", (c) => {
@@ -93,6 +105,15 @@ projectsRouter.put("/:id", jsonValidator(createProjectSchema), async (c) => {
       "Rejected invalid project defaults",
     );
     return c.json(runtimeValidation, 400);
+  }
+
+  const unsupportedParallelAutoQueue = rejectsParallelAutoQueueWithBranches({
+    rootPath: body.rootPath,
+    parallelEnabled: body.parallelEnabled ?? existing.parallelEnabled,
+    autoQueueMode: existing.autoQueueMode,
+  });
+  if (unsupportedParallelAutoQueue) {
+    return c.json({ error: unsupportedParallelAutoQueue }, 400);
   }
 
   const { project: updated, pathError } = updateProject(id, body);
@@ -240,6 +261,15 @@ projectsRouter.patch("/:id/auto-queue-mode", jsonValidator(autoQueueModeSchema),
   const { enabled } = c.req.valid("json");
   const project = findProjectById(id);
   if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const unsupportedParallelAutoQueue = rejectsParallelAutoQueueWithBranches({
+    rootPath: project.rootPath,
+    parallelEnabled: project.parallelEnabled,
+    autoQueueMode: enabled,
+  });
+  if (unsupportedParallelAutoQueue) {
+    return c.json({ error: unsupportedParallelAutoQueue }, 400);
+  }
 
   setAutoQueueMode(id, enabled);
   const updated = findProjectById(id);

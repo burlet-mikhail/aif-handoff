@@ -147,6 +147,60 @@ describe("gitIsolation", () => {
   );
 
   it(
+    "throws base_update_failed for task worktrees when strict_base_update=true and base refresh fails",
+    () => {
+      initRepo(projectRoot);
+      writeConfig(
+        projectRoot,
+        "git:\n  enabled: true\n  base_branch: main\n  create_branches: true\n  strict_base_update: true\n",
+      );
+
+      const branchName = buildBranchName("feature", "Strict worktree", "task-strict-1");
+      extraPaths.push(buildTaskWorktreePath(projectRoot, branchName, "task-strict-1"));
+
+      try {
+        ensureTaskWorktree({
+          projectRoot,
+          taskId: "task-strict-1",
+          title: "Strict worktree",
+        });
+        throw new Error("Expected ensureTaskWorktree to throw");
+      } catch (err) {
+        expect(isBranchIsolationError(err)).toBe(true);
+        if (isBranchIsolationError(err)) {
+          expect(err.kind).toBe("base_update_failed");
+        }
+      }
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "copies latest patch context without making it visible to task commits",
+    () => {
+      initRepo(projectRoot);
+      writeConfig(projectRoot, "git:\n  enabled: true\n  create_branches: true\n");
+      mkdirSync(join(projectRoot, ".ai-factory", "patches"), { recursive: true });
+      writeFileSync(join(projectRoot, ".ai-factory", "patches", "stale.patch"), "diff --git\n");
+
+      const branchName = buildBranchName("feature", "Patch context", "task-patch-1");
+      const worktreePath = buildTaskWorktreePath(projectRoot, branchName, "task-patch-1");
+      extraPaths.push(worktreePath);
+
+      const result = ensureTaskWorktree({
+        projectRoot,
+        taskId: "task-patch-1",
+        title: "Patch context",
+      });
+
+      expect(result.worktreePath).toBe(worktreePath);
+      expect(existsSync(join(worktreePath, ".ai-factory", "patches", "stale.patch"))).toBe(true);
+      expect(git(worktreePath, ["status", "--porcelain"])).not.toContain(".ai-factory/patches");
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "switches to an existing task branch and refuses to invent it in switchOnly mode",
     () => {
       initRepo(projectRoot);

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { projects, taskComments, tasks } from "@aif/shared";
+import { projects, resetEnvCache, taskComments, tasks } from "@aif/shared";
 import { createTestDb } from "@aif/shared/server";
 import { eq } from "drizzle-orm";
 import { execFileSync } from "node:child_process";
@@ -43,6 +43,8 @@ describe("runPlanner comment selection", () => {
     (globalThis as { __AIF_CLAUDE_QUERY_MOCK__?: typeof queryMock }).__AIF_CLAUDE_QUERY_MOCK__ =
       queryMock;
     testDb.current = createTestDb();
+    delete process.env.AIF_TASK_WORKTREES_ENABLED;
+    resetEnvCache();
     queryMock.mockReset();
     queryMock.mockReturnValue(streamSuccess("## New Plan\n- [ ] Step"));
 
@@ -268,7 +270,9 @@ describe("runPlanner comment selection", () => {
     expect(updatedTask?.branchName).toBe(branch);
   });
 
-  it("creates a task worktree for parallel auto-queue full planning", async () => {
+  it("creates a task worktree for parallel full planning when the rollout flag is enabled", async () => {
+    process.env.AIF_TASK_WORKTREES_ENABLED = "true";
+    resetEnvCache();
     const db = testDb.current;
     const projectRoot = mkdtempSync(join(tmpdir(), "planner-worktree-"));
     execFileSync("git", ["init", "--initial-branch=main"], { cwd: projectRoot, stdio: "ignore" });
@@ -294,7 +298,6 @@ describe("runPlanner comment selection", () => {
         name: "Worktree Project",
         rootPath: projectRoot,
         parallelEnabled: true,
-        autoQueueMode: true,
       })
       .run();
     db.insert(tasks)

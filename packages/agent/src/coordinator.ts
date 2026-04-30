@@ -652,7 +652,7 @@ export function processAutoQueueAdvance(): number {
     // planner provisions an isolated cwd before mutating files.
     const usesSharedBranchIsolation =
       (projectUsesSharedBranchIsolation(project.rootPath) &&
-        !projectSupportsTaskWorktrees(project.rootPath)) ||
+        (!env.AIF_TASK_WORKTREES_ENABLED || !projectSupportsTaskWorktrees(project.rootPath))) ||
       hasActiveBranchBoundTasksForProject(project.id);
     if (project.parallelEnabled && usesSharedBranchIsolation) {
       log.warn(
@@ -680,7 +680,10 @@ export function processAutoQueueAdvance(): number {
     // the next task now would let its planner create a feature branch
     // on top of stale changes (or fail checkout outright). Pause
     // auto-queue advance for this project until the work tree is clean.
-    if (isGitRepo(project.rootPath) && !projectSupportsTaskWorktrees(project.rootPath)) {
+    if (
+      isGitRepo(project.rootPath) &&
+      (!env.AIF_TASK_WORKTREES_ENABLED || !projectSupportsTaskWorktrees(project.rootPath))
+    ) {
       const dirty = describeDirtyWorkingTree(project.rootPath);
       if (dirty) {
         log.warn(
@@ -791,7 +794,7 @@ export async function pollAndProcess(): Promise<void> {
       // Mirror processAutoQueueAdvance: config OR task-state forces serial.
       const usesSharedBranchIsolation = project
         ? (projectUsesSharedBranchIsolation(project.rootPath) &&
-            !projectSupportsTaskWorktrees(project.rootPath)) ||
+            (!env.AIF_TASK_WORKTREES_ENABLED || !projectSupportsTaskWorktrees(project.rootPath))) ||
           hasActiveBranchBoundTasksForProject(projectId)
         : false;
       cached = {

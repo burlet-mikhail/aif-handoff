@@ -8,7 +8,7 @@ import {
   setTaskFields,
 } from "@aif/data";
 import { createRuntimeWorkflowSpec } from "@aif/runtime";
-import { logger, formatAttachmentsForPrompt, getProjectConfig } from "@aif/shared";
+import { logger, formatAttachmentsForPrompt, getEnv, getProjectConfig } from "@aif/shared";
 import { executeSubagentQuery } from "../subagentQuery.js";
 import {
   assertCurrentBranch,
@@ -190,7 +190,8 @@ export async function runPlanner(taskId: string, projectRoot: string): Promise<v
     logActivity(taskId, "Agent", `Restored feature branch: ${task.branchName}`);
   } else if (!task.isFix && plannerMode === "full") {
     const shouldCreateWorktree =
-      Boolean(project?.parallelEnabled && project.autoQueueMode) &&
+      getEnv().AIF_TASK_WORKTREES_ENABLED &&
+      Boolean(project?.parallelEnabled) &&
       projectSupportsTaskWorktrees(projectRoot);
     if (shouldCreateWorktree) {
       const worktreeResult = ensureTaskWorktree({

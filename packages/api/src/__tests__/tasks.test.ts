@@ -76,6 +76,7 @@ function createAppWithSettings() {
       useSubagents: env.AGENT_USE_SUBAGENTS,
       maxReviewIterations: env.AGENT_MAX_REVIEW_ITERATIONS,
       autoReviewStrategy: env.AGENT_AUTO_REVIEW_STRATEGY,
+      warmupEnabled: env.AIF_WARMUP_ENABLED,
     });
   });
   return app;
@@ -220,13 +221,12 @@ describe("tasks API", () => {
     it("normalizes non-UTC scheduledAt to UTC Z form", async () => {
       // +03:00 offset, 2 hours in the future as UTC instant
       const future = new Date(Date.now() + 2 * 60 * 60_000);
-      const yyyy = future.getUTCFullYear();
-      const mm = String(future.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(future.getUTCDate()).padStart(2, "0");
+      const futureInOffset = new Date(future.getTime() + 3 * 60 * 60_000);
+      const yyyy = futureInOffset.getUTCFullYear();
+      const mm = String(futureInOffset.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(futureInOffset.getUTCDate()).padStart(2, "0");
       // Express the same instant with +03:00 offset (UTC+3)
-      const utcHour = future.getUTCHours();
-      const localHour = (utcHour + 3) % 24;
-      const offsetIso = `${yyyy}-${mm}-${dd}T${String(localHour).padStart(2, "0")}:${String(future.getUTCMinutes()).padStart(2, "0")}:00+03:00`;
+      const offsetIso = `${yyyy}-${mm}-${dd}T${String(futureInOffset.getUTCHours()).padStart(2, "0")}:${String(futureInOffset.getUTCMinutes()).padStart(2, "0")}:00+03:00`;
 
       const res = await app.request("/tasks", {
         method: "POST",
@@ -2455,6 +2455,7 @@ describe("tasks API", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(typeof body.useSubagents).toBe("boolean");
+      expect(typeof body.warmupEnabled).toBe("boolean");
       expect(["full_re_review", "closure_first"]).toContain(body.autoReviewStrategy);
     });
   });

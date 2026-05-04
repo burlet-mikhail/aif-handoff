@@ -100,7 +100,16 @@ function normalizeUtilizationPercent(value: number | null): number | null {
 }
 
 function mapStatus(info: ClaudeRateLimitInfo): RuntimeLimitStatus {
-  if (info.status === "rejected" || info.overageStatus === "rejected") {
+  // Base status rejected is always a hard block.
+  if (info.status === "rejected") {
+    return RuntimeLimitStatus.BLOCKED;
+  }
+  // Overage rejected is only a block when the base limit itself is NOT allowed.
+  // When overage is disabled at org level (overageDisabledReason is set) but the
+  // base status is "allowed", the user can still use the service — the rejected
+  // overage simply means extra-usage billing is turned off, not that the request
+  // was denied.
+  if (info.overageStatus === "rejected" && info.status !== "allowed") {
     return RuntimeLimitStatus.BLOCKED;
   }
   if (

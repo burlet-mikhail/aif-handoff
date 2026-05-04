@@ -182,7 +182,7 @@ describe("runClaudeCli", () => {
       {
         type: "rate_limit_event",
         rate_limit_info: {
-          status: "allowed",
+          status: "rejected",
           overageStatus: "rejected",
           overageResetsAt: 1_800_000_000,
           rateLimitType: "overage",

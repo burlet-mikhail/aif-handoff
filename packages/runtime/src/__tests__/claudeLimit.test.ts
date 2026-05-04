@@ -63,6 +63,28 @@ describe("normalizeClaudeLimitSnapshot", () => {
     });
   });
 
+  it("does not block when base status is allowed but overage is rejected due to org-level disable", () => {
+    const snapshot = normalizeClaudeLimitSnapshot({
+      info: {
+        status: "allowed",
+        overageStatus: "rejected",
+        overageDisabledReason: "org_level_disabled",
+        isUsingOverage: false,
+        rateLimitType: "overage",
+        resetsAt: 1_800_000_000,
+      },
+      runtimeId: "claude",
+      providerId: "anthropic",
+      profileId: "profile-1",
+      checkedAt: "2026-04-17T00:00:00.000Z",
+    });
+
+    expect(snapshot).toMatchObject({
+      status: RuntimeLimitStatus.OK,
+      primaryScope: RuntimeLimitScope.SPEND,
+    });
+  });
+
   it("treats overage usage as a warning and preserves millisecond reset timestamps", () => {
     const snapshot = normalizeClaudeLimitSnapshot({
       info: {

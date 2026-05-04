@@ -1,4 +1,4 @@
-.PHONY: pre-deploy deploy restart start stop status logs logs-live sync
+.PHONY: pre-deploy deploy restart start stop status logs logs-live sync claude-login claude-fix-perms
 
 DC = docker compose -f docker-compose.production.yml -f docker-compose.override.yml
 
@@ -32,3 +32,9 @@ logs-live:
 
 sync:
 	git fetch upstream && git merge upstream/main && git push origin main
+
+claude-login:
+	bash deploy/ssh.sh "cd ~/aif-handoff && $(DC) exec -u node agent claude /login"
+
+claude-fix-perms:
+	bash deploy/ssh.sh "cd ~/aif-handoff && $(DC) exec agent chown -R node:node /home/node/.claude/"

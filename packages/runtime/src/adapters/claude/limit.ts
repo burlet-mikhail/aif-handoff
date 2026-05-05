@@ -99,8 +99,23 @@ function normalizeUtilizationPercent(value: number | null): number | null {
   return null;
 }
 
+function isActiveOverageRejection(info: ClaudeRateLimitInfo): boolean {
+  return info.overageStatus === "rejected" && info.isUsingOverage === true;
+}
+
+function isOverageWindowRelevant(info: ClaudeRateLimitInfo): boolean {
+  return (
+    isActiveOverageRejection(info) ||
+    info.overageStatus === "allowed_warning" ||
+    info.isUsingOverage === true
+  );
+}
+
 function mapStatus(info: ClaudeRateLimitInfo): RuntimeLimitStatus {
-  if (info.status === "rejected" || info.overageStatus === "rejected") {
+  const baseWindowRejected = info.status === "rejected";
+  const overageWindowRejected = isActiveOverageRejection(info);
+
+  if (baseWindowRejected || overageWindowRejected) {
     return RuntimeLimitStatus.BLOCKED;
   }
   if (
@@ -136,13 +151,10 @@ function resolvePrimaryRateLimitType(
   status: RuntimeLimitStatus,
 ): ClaudeRateLimitType | null {
   const baseType = info.rateLimitType ?? null;
-  const overageRelevant =
-    info.overageStatus === "rejected" ||
-    info.overageStatus === "allowed_warning" ||
-    info.isUsingOverage === true;
+  const overageRelevant = isOverageWindowRelevant(info);
 
   if (status === RuntimeLimitStatus.BLOCKED) {
-    return info.overageStatus === "rejected" ? "overage" : baseType;
+    return isActiveOverageRejection(info) ? "overage" : baseType;
   }
 
   if (status === RuntimeLimitStatus.WARNING) {

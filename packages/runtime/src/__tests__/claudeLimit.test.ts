@@ -63,6 +63,45 @@ describe("normalizeClaudeLimitSnapshot", () => {
     });
   });
 
+  it("does not block when overage is rejected but the account is not using overage", () => {
+    const snapshot = normalizeClaudeLimitSnapshot({
+      info: {
+        status: "allowed",
+        overageStatus: "rejected",
+        isUsingOverage: false,
+        rateLimitType: "five_hour",
+        resetsAt: 1_800_000_000,
+        overageResetsAt: 1_800_100_000,
+        utilization: 0.24,
+        overageDisabledReason: "disabled_by_user",
+      },
+      runtimeId: "claude",
+      providerId: "anthropic",
+      profileId: "profile-1",
+      checkedAt: "2026-04-17T00:00:00.000Z",
+    });
+
+    expect(snapshot).toMatchObject({
+      status: RuntimeLimitStatus.OK,
+      primaryScope: RuntimeLimitScope.TIME,
+      resetAt: new Date(1_800_000_000 * 1000).toISOString(),
+      providerMeta: {
+        rateLimitType: "five_hour",
+        status: "allowed",
+        overageStatus: "rejected",
+        isUsingOverage: false,
+        overageDisabledReason: "disabled_by_user",
+      },
+    });
+    expect(snapshot?.windows[0]).toMatchObject({
+      scope: RuntimeLimitScope.TIME,
+      name: "five_hour",
+      percentUsed: 24,
+      percentRemaining: 76,
+      resetAt: new Date(1_800_000_000 * 1000).toISOString(),
+    });
+  });
+
   it("treats overage usage as a warning and preserves millisecond reset timestamps", () => {
     const snapshot = normalizeClaudeLimitSnapshot({
       info: {

@@ -23,7 +23,21 @@ COPY packages/api/package.json packages/api/
 COPY packages/web/package.json packages/web/
 COPY packages/agent/package.json packages/agent/
 COPY packages/mcp/package.json packages/mcp/
-RUN npm ci --ignore-scripts && npm rebuild
+# Native modules (better-sqlite3) ship prebuilt binaries via prebuild-install.
+# When the prebuild fetch times out (intermittent npm registry / GitHub
+# releases slowness), npm falls back to `node-gyp rebuild`, which needs
+# python3 + build-essential — neither present in node:22-slim. Without those
+# the build fails with a misleading "Python is not set" error. Install the
+# build toolchain upfront, raise npm fetch retries, and clean the apt cache
+# in the same layer to keep image size down.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm ci --ignore-scripts \
+    && npm rebuild
 
 # ---- Build ----
 FROM deps AS build

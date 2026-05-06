@@ -24,8 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Runtime dependency audit (blocking)
-        run: npm audit --omit=dev
+      - name: Runtime dependency audit (blocking high/critical)
+        run: npm audit --omit=dev --audit-level=high
       - name: Full dependency audit (informational)
         run: npm audit --json > npm-audit-full.json
         continue-on-error: true

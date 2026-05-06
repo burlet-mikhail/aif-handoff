@@ -186,7 +186,7 @@ describe("runClaudeCli", () => {
           overageStatus: "rejected",
           overageResetsAt: 1_800_000_000,
           rateLimitType: "overage",
-          isUsingOverage: false,
+          isUsingOverage: true,
         },
       },
     ]);

@@ -99,27 +99,25 @@ function normalizeUtilizationPercent(value: number | null): number | null {
   return null;
 }
 
+function isActiveOverageRejection(info: ClaudeRateLimitInfo): boolean {
+  return info.overageStatus === "rejected" && info.isUsingOverage === true;
+}
+
+function isOverageWindowRelevant(info: ClaudeRateLimitInfo): boolean {
+  return info.isUsingOverage === true;
+}
+
 function mapStatus(info: ClaudeRateLimitInfo): RuntimeLimitStatus {
-  // Base status rejected is always a hard block.
-  if (info.status === "rejected") {
+  const baseWindowRejected = info.status === "rejected";
+  const overageWindowRejected = isActiveOverageRejection(info);
+
+  if (baseWindowRejected || overageWindowRejected) {
     return RuntimeLimitStatus.BLOCKED;
   }
-  // Overage rejected is only a block when the base limit itself is NOT allowed.
-  // When overage is disabled at org level (overageDisabledReason is set) but the
-  // base status is "allowed", the user can still use the service — the rejected
-  // overage simply means extra-usage billing is turned off, not that the request
-  // was denied.
-  if (info.overageStatus === "rejected" && info.status !== "allowed") {
-    return RuntimeLimitStatus.BLOCKED;
-  }
-  if (
-    info.status === "allowed_warning" ||
-    info.overageStatus === "allowed_warning" ||
-    info.isUsingOverage === true
-  ) {
+  if (info.status === "allowed_warning" || info.isUsingOverage === true) {
     return RuntimeLimitStatus.WARNING;
   }
-  if (info.status === "allowed" || info.overageStatus === "allowed") {
+  if (info.status === "allowed") {
     return RuntimeLimitStatus.OK;
   }
   return RuntimeLimitStatus.UNKNOWN;
@@ -144,14 +142,12 @@ function resolvePrimaryRateLimitType(
   info: ClaudeRateLimitInfo,
   status: RuntimeLimitStatus,
 ): ClaudeRateLimitType | null {
-  const baseType = info.rateLimitType ?? null;
-  const overageRelevant =
-    info.overageStatus === "rejected" ||
-    info.overageStatus === "allowed_warning" ||
-    info.isUsingOverage === true;
+  const overageRelevant = isOverageWindowRelevant(info);
+  const baseType =
+    info.rateLimitType === "overage" && !overageRelevant ? null : (info.rateLimitType ?? null);
 
   if (status === RuntimeLimitStatus.BLOCKED) {
-    return info.overageStatus === "rejected" ? "overage" : baseType;
+    return isActiveOverageRejection(info) ? "overage" : baseType;
   }
 
   if (status === RuntimeLimitStatus.WARNING) {
@@ -187,8 +183,7 @@ export function normalizeClaudeLimitSnapshot(
     primaryRateLimitType === "overage"
       ? (normalizeTimestamp(info.overageResetsAt ?? null) ??
         normalizeTimestamp(info.resetsAt ?? null))
-      : (normalizeTimestamp(info.resetsAt ?? null) ??
-        normalizeTimestamp(info.overageResetsAt ?? null));
+      : normalizeTimestamp(info.resetsAt ?? null);
 
   const hasMeaningfulSignal =
     status !== RuntimeLimitStatus.UNKNOWN ||

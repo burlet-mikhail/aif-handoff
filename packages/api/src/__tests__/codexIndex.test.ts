@@ -119,6 +119,7 @@ describe("codex index service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T09:00:00.000Z"));
     mockIsApiIdle.mockReturnValue(true);
     mockListCodexSessionFileStates.mockReturnValue([]);
     mockListCodexSessionFileStatesByPaths.mockReturnValue([]);

@@ -63,15 +63,17 @@ describe("normalizeClaudeLimitSnapshot", () => {
     });
   });
 
-  it("does not block when base status is allowed but overage is rejected due to org-level disable", () => {
+  it("does not block when overage is rejected but the account is not using overage", () => {
     const snapshot = normalizeClaudeLimitSnapshot({
       info: {
         status: "allowed",
         overageStatus: "rejected",
-        overageDisabledReason: "org_level_disabled",
         isUsingOverage: false,
-        rateLimitType: "overage",
+        rateLimitType: "five_hour",
         resetsAt: 1_800_000_000,
+        overageResetsAt: 1_800_100_000,
+        utilization: 0.24,
+        overageDisabledReason: "disabled_by_user",
       },
       runtimeId: "claude",
       providerId: "anthropic",
@@ -81,7 +83,55 @@ describe("normalizeClaudeLimitSnapshot", () => {
 
     expect(snapshot).toMatchObject({
       status: RuntimeLimitStatus.OK,
-      primaryScope: RuntimeLimitScope.SPEND,
+      primaryScope: RuntimeLimitScope.TIME,
+      resetAt: new Date(1_800_000_000 * 1000).toISOString(),
+      providerMeta: {
+        rateLimitType: "five_hour",
+        status: "allowed",
+        overageStatus: "rejected",
+        isUsingOverage: false,
+        overageDisabledReason: "disabled_by_user",
+      },
+    });
+    expect(snapshot?.windows[0]).toMatchObject({
+      scope: RuntimeLimitScope.TIME,
+      name: "five_hour",
+      percentUsed: 24,
+      percentRemaining: 76,
+      resetAt: new Date(1_800_000_000 * 1000).toISOString(),
+    });
+  });
+
+  it("ignores informational overage rate limit types when overage is inactive", () => {
+    const snapshot = normalizeClaudeLimitSnapshot({
+      info: {
+        status: "allowed",
+        overageStatus: "rejected",
+        overageResetsAt: 1_800_000_000,
+        rateLimitType: "overage",
+        isUsingOverage: false,
+      },
+      runtimeId: "claude",
+      providerId: "anthropic",
+      profileId: "profile-1",
+      checkedAt: "2026-04-17T00:00:00.000Z",
+    });
+
+    expect(snapshot).toMatchObject({
+      status: RuntimeLimitStatus.OK,
+      primaryScope: RuntimeLimitScope.OTHER,
+      resetAt: null,
+      providerMeta: {
+        rateLimitType: null,
+        status: "allowed",
+        overageStatus: "rejected",
+        isUsingOverage: false,
+      },
+    });
+    expect(snapshot?.windows[0]).toMatchObject({
+      scope: RuntimeLimitScope.OTHER,
+      name: null,
+      resetAt: null,
     });
   });
 

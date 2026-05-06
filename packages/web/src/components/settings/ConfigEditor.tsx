@@ -140,8 +140,15 @@ export function ConfigEditor({ config, onConfigChange, projectId }: Props) {
   return (
     <div className="space-y-1">
       {/* Language */}
-      <SectionTitle>Language</SectionTitle>
-      <Field label="UI language" hint="Language for AI-agent communication">
+      <SectionTitle>Agent language</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-1 mb-2">
+        These settings control the language AI agents use in their output (plans, comments,
+        reviews). They do not localize the web UI — the web UI is English only.
+      </p>
+      <Field
+        label="Agent reply language"
+        hint="Language used by AI agents in chat / comments. Does not change the web UI."
+      >
         <Select
           value={config.language?.ui ?? "en"}
           options={LANGUAGE_OPTIONS}
@@ -149,7 +156,7 @@ export function ConfigEditor({ config, onConfigChange, projectId }: Props) {
           selectSize="sm"
         />
       </Field>
-      <Field label="Artifacts language" hint="Language for generated plans, docs">
+      <Field label="Artifacts language" hint="Language for generated plans, docs, postmortems">
         <Select
           value={config.language?.artifacts ?? "en"}
           options={LANGUAGE_OPTIONS}

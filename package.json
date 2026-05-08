@@ -33,6 +33,8 @@
     "lint": "turbo lint",
     "test": "turbo test",
     "coverage": "turbo coverage --concurrency=1",
+    "mutation": "node scripts/mutation.mjs",
+    "mutation:dry-run": "node scripts/mutation.mjs --dryRunOnly",
     "db:setup": "npm run db:setup --workspace=@aif/shared",
     "db:push": "turbo db:push --filter=@aif/shared",
     "format": "prettier --write .",
@@ -48,6 +50,8 @@
     "*.{ts,tsx,js,jsx,json,md,css}": "prettier --write"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@vitest/coverage-v8": "^4.1.2",
     "ai-factory": "^2.10.0",
     "eslint": "^9.39.4",

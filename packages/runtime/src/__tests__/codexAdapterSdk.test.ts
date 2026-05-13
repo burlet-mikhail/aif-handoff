@@ -8,9 +8,19 @@ const runCodexSdkMock = vi.fn();
 const runCodexAppServerMock = vi.fn();
 const validateCodexAgentApiConnectionMock = vi.fn();
 const listCodexAppServerModelsMock = vi.fn();
+const codexConstructorMock = vi.fn();
 
 vi.mock("../adapters/codex/cli.js", () => ({
+  probeCodexCli: vi.fn().mockReturnValue({ ok: true, version: "codex-test" }),
   runCodexCli: (...args: unknown[]) => runCodexCliMock(...args),
+}));
+
+vi.mock("@openai/codex-sdk", () => ({
+  Codex: class MockCodex {
+    constructor(options: unknown) {
+      codexConstructorMock(options);
+    }
+  },
 }));
 
 vi.mock("../adapters/codex/api.js", () => ({
@@ -61,6 +71,7 @@ function createRunInput(overrides: Record<string, unknown> = {}) {
 describe("Codex adapter — SDK transport and capabilities", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     runCodexCliMock.mockResolvedValue({ outputText: "cli-output", sessionId: null });
     runCodexAgentApiMock.mockResolvedValue({ outputText: "api-output", sessionId: null });
     runCodexSdkMock.mockResolvedValue({ outputText: "sdk-output", sessionId: "thread-1" });
@@ -188,6 +199,7 @@ describe("Codex adapter — SDK transport and capabilities", () => {
 
   describe("validateConnection — SDK", () => {
     it("validates SDK transport without requiring API key", async () => {
+      vi.stubEnv("CODEX_CLI_PATH", process.execPath);
       const adapter = createCodexRuntimeAdapter();
       const result = await adapter.validateConnection!({
         runtimeId: "codex",

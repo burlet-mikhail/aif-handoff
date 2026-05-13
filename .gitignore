@@ -64,6 +64,8 @@ test-results/
 /.codex/
 /.agents/
 /.github/skills
+/.junie/
+/.stryker-tmp/
 
 # AI Factory (keep tracked files, ignore generated)
 .ai-factory.json

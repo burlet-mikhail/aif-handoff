@@ -142,27 +142,14 @@ describe("codex model discovery process helpers", () => {
     ).toBe("codex");
   });
 
-  it("attempts bundled binary lookup for sdk transport when no explicit cli path is set", () => {
-    let resolved: string | null = null;
-    let thrown: unknown = null;
-
-    try {
-      resolved = resolveDiscoveryExecutable(
+  it("uses installed codex on PATH for sdk transport when no explicit cli path is set", () => {
+    expect(
+      resolveDiscoveryExecutable(
         createModelDiscoveryInput({
           transport: RuntimeTransport.SDK,
           options: {},
         }),
-      );
-    } catch (error) {
-      thrown = error;
-    }
-
-    if (thrown) {
-      const message = thrown instanceof Error ? thrown.message : String(thrown);
-      expect(message.length).toBeGreaterThan(0);
-    } else {
-      expect(resolved).toBeTruthy();
-      expect(resolved!.toLowerCase()).toContain("codex");
-    }
+      ),
+    ).toBe("codex");
   });
 });

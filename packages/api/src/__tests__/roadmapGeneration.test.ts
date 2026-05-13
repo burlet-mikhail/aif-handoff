@@ -28,7 +28,7 @@ const {
   buildTaskTags,
   RoadmapGenerationError,
 } = await import("../services/roadmapGeneration.js");
-const { findTasksByRoadmapAlias } = await import("@aif/data");
+const { findTasksByRoadmapAlias, nextBacklogTaskByPosition } = await import("@aif/data");
 
 function createProjectWithRoadmap(roadmapContent: string) {
   const tmpDir = mkdtempSync(join(tmpdir(), "roadmap-test-"));
@@ -391,6 +391,66 @@ describe("roadmapGeneration", () => {
       expect(task.planDocs).toBe(true);
       expect(task.planTests).toBe(true);
       expect(task.skipReview).toBe(true);
+    });
+
+    it("should position imported roadmap tasks in phase and sequence order for auto-queue", () => {
+      const { projectId } = createProjectWithRoadmap("# Roadmap");
+
+      const result = importGeneratedTasks(projectId, {
+        alias: "v1",
+        tasks: [
+          { title: "Phase 5", description: "", phase: 5, phaseName: "Late", sequence: 1 },
+          { title: "Phase 1 second", description: "", phase: 1, phaseName: "Early", sequence: 2 },
+          { title: "Phase 1 first", description: "", phase: 1, phaseName: "Early", sequence: 1 },
+          { title: "Phase 1 tie A", description: "", phase: 1, phaseName: "Early", sequence: 3 },
+          { title: "Phase 1 tie B", description: "", phase: 1, phaseName: "Early", sequence: 3 },
+        ],
+      });
+
+      expect(result.created).toBe(5);
+      const stored = findTasksByRoadmapAlias(projectId, "v1")
+        .sort((a, b) => a.position - b.position)
+        .map((task) => task.title);
+
+      expect(stored).toEqual([
+        "Phase 1 first",
+        "Phase 1 second",
+        "Phase 1 tie A",
+        "Phase 1 tie B",
+        "Phase 5",
+      ]);
+      expect(nextBacklogTaskByPosition(projectId)?.title).toBe("Phase 1 first");
+    });
+
+    it("should not leave position gaps for skipped duplicate roadmap tasks", () => {
+      const { projectId } = createProjectWithRoadmap("# Roadmap");
+
+      importGeneratedTasks(projectId, {
+        alias: "v1",
+        tasks: [
+          { title: "Already exists", description: "", phase: 1, phaseName: "P1", sequence: 1 },
+        ],
+      });
+
+      const result = importGeneratedTasks(projectId, {
+        alias: "v1",
+        tasks: [
+          { title: "Already exists", description: "", phase: 1, phaseName: "P1", sequence: 1 },
+          { title: "Created first", description: "", phase: 1, phaseName: "P1", sequence: 2 },
+          { title: "Created second", description: "", phase: 1, phaseName: "P1", sequence: 3 },
+        ],
+      });
+
+      expect(result.created).toBe(2);
+      expect(result.skipped).toBe(1);
+
+      const createdPositions = findTasksByRoadmapAlias(projectId, "v1")
+        .filter((task) => task.title.startsWith("Created "))
+        .sort((a, b) => a.position - b.position)
+        .map((task) => task.position);
+
+      expect(createdPositions).toHaveLength(2);
+      expect(createdPositions[1] - createdPositions[0]).toBe(100);
     });
 
     it("should skip duplicates by normalized title", () => {

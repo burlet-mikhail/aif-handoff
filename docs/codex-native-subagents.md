@@ -6,12 +6,9 @@ This rollout adds native Codex subagents behind an explicit opt-in flag. AIF Han
 
 Minimum AI Factory version:
 
-- the first release that includes `ai-factory` PR `#70` ("materialize managed agent assets")
-- current `ai-factory#70` branch version: `2.11.0`
+- `ai-factory` `2.11.0` or later, which includes PR `#70` ("materialize managed agent assets")
 
-Do not rely on earlier `2.9.x` packages for this rollout unless the release notes explicitly say
-they include `ai-factory#70`. If your project was bootstrapped with an older AI Factory release,
-upgrade to the release containing `#70` or use that PR branch, then re-run:
+Do not rely on earlier `2.9.x` or `2.10.x` packages for this rollout. If your project was bootstrapped with an older AI Factory release, upgrade to `2.11.0` or later, then re-run:
 
 ```bash
 ai-factory init --agents claude,codex
@@ -34,7 +31,7 @@ Default behavior after this change:
 
 - `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=false` (default) → isolated skill-session mode, even when native assets are present
 - `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true` + `codex` + `sdk` + `useSubagents=true` + native assets present → native Codex subagents
-- `codex` + `sdk` + `useSubagents=true` + native assets missing → automatic fallback to isolated skill-session mode until the project is reinitialized with the AI Factory release containing PR `#70`
+- `codex` + `sdk` + `useSubagents=true` + native assets missing → automatic fallback to isolated skill-session mode until the project is reinitialized with AI Factory `2.11.0` or later
 - `codexSubagentStrategy: "isolated"` → explicit escape hatch to legacy isolated skill-session flow
 - `codexSubagentStrategy: "native"` → profile-level opt-in that still requires the global env flag above
 - Claude remains unchanged and continues using `.claude/agents/*`
@@ -58,7 +55,7 @@ What still comes from `aif-handoff` at runtime:
 
 ## Verification Checklist
 
-1. Install or upgrade AI Factory to the release containing PR `#70`.
+1. Install or upgrade AI Factory to `2.11.0` or later.
 2. In the target project, run `ai-factory init --agents claude,codex`.
 3. Confirm the project contains `.codex/agents/` and `.codex/config.toml`.
 4. Start AIF Handoff with `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true`.

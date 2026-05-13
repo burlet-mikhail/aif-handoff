@@ -230,7 +230,7 @@ function resolveTransport(input: {
   };
 }
 
-function resolveCliPath(input: RuntimeConnectionValidationInput): string | null {
+function resolveCliPath(input: RuntimeConnectionValidationInput): string {
   const options = asRecord(input.options);
   return readString(options.codexCliPath) ?? readString(process.env.CODEX_CLI_PATH) ?? "codex";
 }
@@ -274,24 +274,19 @@ async function validateCodexCliConnection(
 }
 
 async function validateCodexSdkConnection(
-  _input: RuntimeConnectionValidationInput,
+  input: RuntimeConnectionValidationInput,
 ): Promise<RuntimeConnectionValidationResult> {
-  // SDK internally locates a vendored platform binary from optional deps
-  // (e.g. @openai/codex-win32-x64). If that's missing, `new Codex()` will
-  // throw at thread start. We probe eagerly by attempting a minimal instantiation.
+  const cliValidation = await validateCodexCliConnection(input);
+  if (!cliValidation.ok) {
+    return cliValidation;
+  }
+
+  const cliPath = resolveCliPath(input);
   try {
     const { Codex } = await import("@openai/codex-sdk");
-    // Codex constructor itself may throw if vendored binary is missing
-    new Codex({});
+    new Codex({ codexPathOverride: cliPath });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("locate") || msg.includes("binaries") || msg.includes("optional")) {
-      return {
-        ok: false,
-        message: `Codex SDK vendor binary not found. Install platform-specific optional dep: ${msg}`,
-      };
-    }
-    // Other import/init errors — SDK itself may not be installed
     return {
       ok: false,
       message: `Codex SDK is not available: ${msg}`,
@@ -300,7 +295,7 @@ async function validateCodexSdkConnection(
 
   return {
     ok: true,
-    message: "Codex SDK is available (vendor binary found)",
+    message: `Codex SDK is available and will use CLI ${cliValidation.message}`,
   };
 }
 

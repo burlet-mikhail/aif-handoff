@@ -2,7 +2,13 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { z } from "zod";
 import { logger, getEnv, getProjectConfig, generatePlanPath, defaultsForMode } from "@aif/shared";
-import { createTask, findProjectById, findTasksByRoadmapAlias, listTasks } from "@aif/data";
+import {
+  createTask,
+  findProjectById,
+  findTasksByRoadmapAlias,
+  getMinBacklogPosition,
+  listTasks,
+} from "@aif/data";
 import { UsageSource } from "@aif/runtime";
 import { resolveApiLightModel, runApiRuntimeOneShot } from "./runtime.js";
 
@@ -37,6 +43,11 @@ export interface RoadmapGenerationResult {
   alias: string;
   tasks: GeneratedTask[];
 }
+
+type IndexedGeneratedTask = {
+  task: GeneratedTask;
+  index: number;
+};
 
 export interface GenerateRoadmapFileInput {
   projectId: string;
@@ -411,6 +422,10 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function compareRoadmapImportOrder(a: IndexedGeneratedTask, b: IndexedGeneratedTask): number {
+  return a.task.phase - b.task.phase || a.task.sequence - b.task.sequence || a.index - b.index;
+}
+
 // -- Dedupe + batch creation --
 
 export interface ImportResult {
@@ -458,6 +473,8 @@ export function importGeneratedTasks(
       .map((t) => t.planPath)
       .filter((p): p is string => !!p && p !== cfg.paths.plan),
   );
+  const minBacklogPosition = getMinBacklogPosition(projectId);
+  const importPositionStart = (minBacklogPosition ?? 1000) - generatedTasks.length * 100;
 
   // Compute a unique plan path per task using the shared slug helper, and
   // append `-2`, `-3`, … before `.md` if the base path collides with an
@@ -493,7 +510,13 @@ export function importGeneratedTasks(
     byPhase: {},
   };
 
-  for (const genTask of generatedTasks) {
+  const orderedTasks = generatedTasks
+    .map((task, index) => ({ task, index }))
+    .sort(compareRoadmapImportOrder);
+
+  let createdPositionIndex = 0;
+
+  for (const { task: genTask } of orderedTasks) {
     const phaseStats = result.byPhase[genTask.phase] ?? { created: 0, skipped: 0 };
     result.byPhase[genTask.phase] = phaseStats;
 
@@ -525,9 +548,11 @@ export function importGeneratedTasks(
       planTests: modeDefaults.planTests,
       skipReview: true,
       useSubagents: getEnv().AGENT_USE_SUBAGENTS,
+      position: importPositionStart + createdPositionIndex * 100,
     });
 
     if (created) {
+      createdPositionIndex++;
       result.taskIds.push(created.id);
       phaseStats.created++;
       result.created++;

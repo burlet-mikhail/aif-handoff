@@ -67,6 +67,8 @@ describe("env validation", () => {
     expect(result.AIF_WARMUP_ENABLED).toBe(false);
     expect(result.AIF_TASK_WORKTREES_ENABLED).toBe(false);
     expect(result.AIF_RUNTIME_SESSION_FORK_ENABLED).toBe(false);
+    expect(result.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(false);
+    expect(result.AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED).toBe(false);
   });
 
   it("should parse AIF_WARMUP_ENABLED boolean values", () => {
@@ -74,6 +76,22 @@ describe("env validation", () => {
     expect(validateEnv({ AIF_WARMUP_ENABLED: "1" }).AIF_WARMUP_ENABLED).toBe(true);
     expect(validateEnv({ AIF_WARMUP_ENABLED: "false" }).AIF_WARMUP_ENABLED).toBe(false);
     expect(validateEnv({ AIF_WARMUP_ENABLED: "0" }).AIF_WARMUP_ENABLED).toBe(false);
+  });
+
+  it("should parse runtime rollout boolean flags", () => {
+    const enabled = validateEnv({
+      AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: "yes",
+      AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED: "on",
+    });
+    expect(enabled.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(true);
+    expect(enabled.AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED).toBe(true);
+
+    const disabled = validateEnv({
+      AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: "no",
+      AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED: "off",
+    });
+    expect(disabled.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(false);
+    expect(disabled.AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED).toBe(false);
   });
 
   it("should accept missing ANTHROPIC_API_KEY (uses ~/.claude/ auth)", () => {

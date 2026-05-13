@@ -197,7 +197,7 @@ CLI-specific options:
 
 ### Codex (SDK transport)
 
-Uses `@openai/codex-sdk` which wraps the Codex CLI with thread-based conversations, streaming events, and resume support. Auth is handled by the CLI's own login (`codex auth login`), same as Claude SDK.
+Uses `@openai/codex-sdk` which wraps the installed Codex CLI with thread-based conversations, streaming events, and resume support. Auth is handled by the CLI's own login (`codex auth login`), same as Claude SDK. The executable is resolved as `options.codexCliPath`, then `CODEX_CLI_PATH`, then `codex` from `PATH`; Handoff does not fall back to the SDK's vendored Codex binary.
 
 ```json
 {
@@ -213,7 +213,7 @@ Uses `@openai/codex-sdk` which wraps the Codex CLI with thread-based conversatio
 
 SDK-specific options:
 
-- `codexCliPath` — path to the `codex` binary (SDK wraps the CLI)
+- `codexCliPath` — path to the installed `codex` binary (SDK wraps the CLI); overrides `CODEX_CLI_PATH`
 - `codexConfig` — JSON object of CLI config overrides (flattened to `--config` flags)
 - `sandboxMode` — one of `read-only`, `workspace-write`, `danger-full-access`
 - `approvalPolicy` — one of `untrusted`, `on-failure`, `on-request`, `never`
@@ -270,10 +270,11 @@ Runs `codex app-server` over stdio JSONL RPC and keeps Codex thread IDs as resum
 App Server operational notes:
 
 - Reuses the same key options as other Codex transports: `codexCliPath`, `approvalPolicy`, `sandboxMode`, `modelReasoningEffort`, and `skipGitRepoCheck`.
+- Uses the installed Codex CLI only: `options.codexCliPath`, then `CODEX_CLI_PATH`, then `codex` from `PATH`.
 - Does not add a transport-local hard run timeout. Long-running stages are governed by the shared runtime execution config; `options.appServerRequestTimeoutMs` only controls individual JSONL RPC request waits.
 - Human approval bridging is not implemented yet. App Server approval requests, including command, file-change, permissions, apply-patch, and exec-command requests, are denied by design and surfaced as permission failures/events; App Server therefore reports `supportsApprovals: false` even though approval request events are observable. Unattended App Server profiles should use `approvalPolicy="never"` only when the caller has intentionally accepted that trust level.
 - Session list APIs are supported through `thread/list` and `thread/read`; AIF stores Codex thread IDs as runtime session IDs for resume.
-- Docker images already include `@openai/codex` and mount persistent `~/.codex` auth state (`codex-auth` volume), so no extra Docker wiring is required for this transport.
+- Docker images must have the `codex` executable on `PATH` or set `CODEX_CLI_PATH`; they mount persistent `~/.codex` auth state (`codex-auth` volume).
 - On Windows, configured `codexCliPath` / `CODEX_CLI_PATH` values are treated as executable paths or shim names, not shell snippets. Values containing command-shell metacharacters are rejected before spawn.
 
 ### Codex (API transport)

@@ -62,6 +62,7 @@ const {
   updateScheduledAt,
   getAutoQueueMode,
   setAutoQueueMode,
+  getMinBacklogPosition,
   nextBacklogTaskByPosition,
   listAutoQueueProjects,
   countActivePipelineTasksForProject,
@@ -1149,6 +1150,29 @@ describe("data layer", () => {
       expect(next).toBeDefined();
       expect(next!.position).toBeLessThanOrEqual(a!.position);
       expect([a!.id, b!.id]).toContain(next!.id);
+    });
+
+    it("createTask honors an explicit position override for batch import callers", () => {
+      createTask({ projectId: "proj-1", title: "Default", description: "" });
+      const positioned = createTask({
+        projectId: "proj-1",
+        title: "Positioned",
+        description: "",
+        position: 123,
+      });
+
+      expect(positioned?.position).toBe(123);
+    });
+
+    it("getMinBacklogPosition returns null for empty backlog and the project minimum otherwise", () => {
+      expect(getMinBacklogPosition("proj-1")).toBeNull();
+      seedProject("proj-2");
+      createTask({ projectId: "proj-1", title: "Later", description: "", position: 500 });
+      createTask({ projectId: "proj-1", title: "Earlier", description: "", position: 100 });
+      createTask({ projectId: "proj-2", title: "Other project", description: "", position: -100 });
+
+      expect(getMinBacklogPosition("proj-1")).toBe(100);
+      expect(getMinBacklogPosition("proj-2")).toBe(-100);
     });
 
     it("nextBacklogTaskByPosition ignores tasks scheduled in the future", () => {

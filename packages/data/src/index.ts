@@ -541,6 +541,15 @@ export function listTasks(projectId?: string): TaskRow[] {
   return db.select().from(tasks).orderBy(asc(tasks.status), asc(tasks.position)).all();
 }
 
+export function getMinBacklogPosition(projectId: string): number | null {
+  const row = getDb()
+    .select({ minPos: min(tasks.position) })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.status, "backlog")))
+    .get();
+  return row?.minPos == null ? null : Number(row.minPos);
+}
+
 /** Summary projection — excludes heavy text fields for list/search responses. */
 export type TaskSummaryRow = Pick<TaskRow,
   | "id" | "projectId" | "title" | "status" | "priority" | "position"
@@ -699,6 +708,7 @@ export function createTask(input: {
   roadmapAlias?: string;
   tags?: string[];
   scheduledAt?: string | null;
+  position?: number;
 }): TaskRow | undefined {
   const db = getDb();
   const id = crypto.randomUUID();
@@ -749,7 +759,7 @@ export function createTask(input: {
       reworkRequested: false,
       manualReviewRequired: false,
       status: "backlog",
-      position: (() => {
+      position: input.position ?? (() => {
         const row = db
           .select({ minPos: min(tasks.position) })
           .from(tasks)

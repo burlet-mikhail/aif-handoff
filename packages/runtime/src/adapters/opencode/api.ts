@@ -11,7 +11,8 @@ import type {
   RuntimeSessionGetInput,
   RuntimeSessionListInput,
 } from "../../types.js";
-import { redactProviderText } from "@aif/shared";
+import { getEnv, redactProviderText } from "@aif/shared";
+import { Agent, type Dispatcher } from "undici";
 import { classifyOpenCodeRuntimeError, OpenCodeRuntimeAdapterError } from "./errors.js";
 
 export interface OpenCodeApiLogger {
@@ -44,6 +45,20 @@ interface OpenCodeSessionResponse {
     providerID?: string;
   };
   [key: string]: unknown;
+}
+
+interface RequestInitWithDispatcher extends RequestInit {
+  dispatcher?: Dispatcher;
+}
+
+let longRunningOpenCodeDispatcher: Dispatcher | null = null;
+
+function getLongRunningOpenCodeDispatcher(): Dispatcher {
+  longRunningOpenCodeDispatcher ??= new Agent({
+    bodyTimeout: 0,
+    headersTimeout: 0,
+  });
+  return longRunningOpenCodeDispatcher;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -280,6 +295,7 @@ async function requestJson<T>(
     path: string;
     body?: Record<string, unknown>;
     timeoutMs?: number;
+    longRunning?: boolean;
     logger?: OpenCodeApiLogger;
     logMessage?: string;
   },
@@ -304,12 +320,17 @@ async function requestJson<T>(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const requestInit: RequestInitWithDispatcher = {
       method: options.method,
       headers: buildHeaders(input),
       body: options.body ? JSON.stringify(options.body) : undefined,
       signal: controller.signal,
-    });
+    };
+    if (options.longRunning && getEnv().AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED) {
+      requestInit.dispatcher = getLongRunningOpenCodeDispatcher();
+    }
+
+    const response = await fetch(url, requestInit);
 
     if (!response.ok) {
       const bodyText = await response.text();
@@ -437,6 +458,7 @@ export async function runOpenCodeApi(
     method: "POST",
     path: `/session/${encodeURIComponent(activeSession.id)}/message`,
     body,
+    longRunning: true,
     logger,
     logMessage: "Posting OpenCode session message",
   });

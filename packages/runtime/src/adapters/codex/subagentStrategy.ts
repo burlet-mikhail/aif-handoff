@@ -28,6 +28,7 @@ export interface CodexSubagentStrategyResolution {
   nativeSubagentsEnabled: boolean;
 }
 
+// Keep this list in lockstep with the Codex assets materialized by ai-factory >=2.11.0.
 const CODEX_NATIVE_AGENT_FILES = [
   "best-practices-sidecar.toml",
   "commit-preparer.toml",

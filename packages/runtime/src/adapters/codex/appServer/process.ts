@@ -1,22 +1,8 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createRequire } from "node:module";
-import path from "node:path";
 import { RuntimeTransport } from "../../../types.js";
 import { buildSafeWindowsShellCommandLine } from "../../../shellSafety.js";
 
 const IS_WINDOWS = process.platform === "win32";
-const moduleRequire = createRequire(import.meta.url);
-const CODEX_SDK_NPM_NAME = "@openai/codex-sdk";
-const CODEX_NPM_NAME = "@openai/codex";
-
-const PLATFORM_PACKAGE_BY_TARGET: Record<string, string> = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
-};
 
 const ALLOWED_ENV_KEYS = new Set([
   "HOME",
@@ -95,16 +81,7 @@ export function resolveCodexAppServerExecutable(input: CodexAppServerLaunchInput
   const options = asRecord(input.options);
   const configuredCliPath =
     readString(options.codexCliPath) ?? readString(process.env.CODEX_CLI_PATH);
-
-  if (configuredCliPath) {
-    return configuredCliPath;
-  }
-
-  if ((input.transport ?? RuntimeTransport.CLI) === RuntimeTransport.SDK) {
-    return findBundledCodexBinary();
-  }
-
-  return "codex";
+  return configuredCliPath ?? "codex";
 }
 
 export function buildCodexAppServerEnv(input: CodexAppServerLaunchInput): Record<string, string> {
@@ -329,55 +306,6 @@ function isAllowedEnvironmentKey(key: string): boolean {
 
 export function hasProcessExited(process: ChildProcess): boolean {
   return process.exitCode != null || process.signalCode != null;
-}
-
-function findBundledCodexBinary(): string {
-  const { platform, arch } = process;
-  let targetTriple: string | null = null;
-
-  switch (platform) {
-    case "linux":
-    case "android":
-      targetTriple =
-        arch === "x64"
-          ? "x86_64-unknown-linux-musl"
-          : arch === "arm64"
-            ? "aarch64-unknown-linux-musl"
-            : null;
-      break;
-    case "darwin":
-      targetTriple =
-        arch === "x64" ? "x86_64-apple-darwin" : arch === "arm64" ? "aarch64-apple-darwin" : null;
-      break;
-    case "win32":
-      targetTriple =
-        arch === "x64"
-          ? "x86_64-pc-windows-msvc"
-          : arch === "arm64"
-            ? "aarch64-pc-windows-msvc"
-            : null;
-      break;
-    default:
-      targetTriple = null;
-  }
-
-  if (!targetTriple) {
-    throw new Error(`Unsupported platform for bundled Codex binary: ${platform} (${arch})`);
-  }
-
-  const platformPackage = PLATFORM_PACKAGE_BY_TARGET[targetTriple];
-  if (!platformPackage) {
-    throw new Error(`Unsupported Codex target triple: ${targetTriple}`);
-  }
-
-  const codexSdkPackageJsonPath = moduleRequire.resolve(`${CODEX_SDK_NPM_NAME}/package.json`);
-  const codexSdkRequire = createRequire(codexSdkPackageJsonPath);
-  const codexPackageJsonPath = codexSdkRequire.resolve(`${CODEX_NPM_NAME}/package.json`);
-  const codexRequire = createRequire(codexPackageJsonPath);
-  const platformPackageJsonPath = codexRequire.resolve(`${platformPackage}/package.json`);
-  const vendorRoot = path.join(path.dirname(platformPackageJsonPath), "vendor");
-  const binaryName = IS_WINDOWS ? "codex.exe" : "codex";
-  return path.join(vendorRoot, targetTriple, "codex", binaryName);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

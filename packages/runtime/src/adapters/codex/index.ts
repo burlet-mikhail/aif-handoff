@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { getEnv } from "@aif/shared";
+import { asRecord, readString } from "../../utils.js";
 import { getCodexMcpStatus, installCodexMcpServer, uninstallCodexMcpServer } from "./mcp.js";
 import { initCodexProject } from "./project.js";
 import {
@@ -74,16 +75,6 @@ function createFallbackLogger(): CodexRuntimeAdapterLogger {
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
 function sessionIdSuffix(sessionId: string | null | undefined): string | null {
   if (!sessionId) return null;
   return sessionId.length <= 8 ? sessionId : sessionId.slice(-8);
@@ -117,6 +108,8 @@ const CLI_CAPABILITIES: RuntimeCapabilities = {
   supportsModelDiscovery: true,
   supportsApprovals: false,
   supportsCustomEndpoint: true,
+  supportsIsolatedSubagentWorkflows: false,
+  supportsNativeSubagentWorkflows: false,
   // CLI stream emits token_count events when the turn completes, but some
   // early-termination paths (timeout, non-zero exit) may return before the
   // event is seen — declare PARTIAL so the wrapper tolerates null usage.
@@ -132,6 +125,8 @@ const SDK_CAPABILITIES: RuntimeCapabilities = {
   supportsModelDiscovery: true,
   supportsApprovals: false,
   supportsCustomEndpoint: true,
+  supportsIsolatedSubagentWorkflows: true,
+  supportsNativeSubagentWorkflows: true,
   usageReporting: UsageReporting.FULL,
 };
 
@@ -144,6 +139,8 @@ const API_CAPABILITIES: RuntimeCapabilities = {
   supportsModelDiscovery: true,
   supportsApprovals: false,
   supportsCustomEndpoint: true,
+  supportsIsolatedSubagentWorkflows: false,
+  supportsNativeSubagentWorkflows: false,
   usageReporting: UsageReporting.FULL,
 };
 

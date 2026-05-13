@@ -134,6 +134,7 @@ export {
 
 export {
   createRuntimeWorkflowSpec,
+  type RuntimeWorkflowExecutionMode,
   type RuntimeSessionReusePolicy,
   type RuntimeWorkflowFallbackStrategy,
   type RuntimeWorkflowKind,
@@ -197,6 +198,14 @@ export type {
   CodexRuntimeAdapterLogger,
   CreateCodexRuntimeAdapterOptions,
 } from "./adapters/codex/index.js";
+
+export {
+  CODEX_SUBAGENT_STRATEGIES,
+  CODEX_SUBAGENT_STRATEGY_OPTION,
+  getNativeSubagentWorkflowGuidance,
+  resolveCodexSubagentStrategy,
+  type CodexSubagentStrategy,
+} from "./adapters/codex/subagentStrategy.js";
 
 export {
   buildCodexAuthFingerprint,

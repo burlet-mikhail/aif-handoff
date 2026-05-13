@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 type ResolutionViolation = {
@@ -26,14 +27,16 @@ const {
   assertWorkspacePackagesResolveToSource,
   findDistWorkspaceResolutions,
 } = (await import(guardModulePath)) as WorkspaceResolutionGuard;
-const nodeImportMeta = import.meta as ImportMeta & { resolve: (specifier: string) => string };
+const resolveFromTestFile = createRequire(import.meta.url).resolve;
 
 describe("workspace resolution guard", () => {
   it("keeps dev workspace package resolution on source files", () => {
-    expect(findDistWorkspaceResolutions()).toEqual([]);
+    expect(
+      findDistWorkspaceResolutions(DEFAULT_DEV_WORKSPACE_SPECIFIERS, resolveFromTestFile),
+    ).toEqual([]);
 
     const resolved = DEFAULT_DEV_WORKSPACE_SPECIFIERS.map((specifier) =>
-      nodeImportMeta.resolve(specifier),
+      resolveFromTestFile(specifier),
     );
     for (const resolvedSpecifier of resolved) {
       expect(resolvedSpecifier.replace(/\\/g, "/")).toContain("/src/");

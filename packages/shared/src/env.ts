@@ -154,6 +154,16 @@ const envSchema = z.object({
       return value;
     }, z.boolean())
     .default(false),
+  AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: z
+    .preprocess((value) => {
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (BOOLEAN_TRUE_VALUES.has(normalized)) return true;
+        if (BOOLEAN_FALSE_VALUES.has(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .default(false),
   AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED: z
     .preprocess((value) => {
       if (typeof value === "string") {

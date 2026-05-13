@@ -59,13 +59,13 @@ The API exposes effective selection endpoints:
 
 ## Supported Runtimes
 
-| Runtime      | Provider     | Transports                | Resume                   | Session Fork     | Sessions             | Agent Defs    | Usage Reporting                          | Light Model         | Status                    |
-| ------------ | ------------ | ------------------------- | ------------------------ | ---------------- | -------------------- | ------------- | ---------------------------------------- | ------------------- | ------------------------- |
-| `claude`     | `anthropic`  | SDK, CLI, API             | Yes (SDK/CLI)            | Yes (SDK/CLI)    | Yes (SDK/CLI)        | Yes (SDK/CLI) | `FULL` (all transports)                  | `claude-haiku-3-5`  | Built-in                  |
-| `codex`      | `openai`     | SDK, CLI, App Server, API | Yes (SDK/CLI/App Server) | Yes (App Server) | Yes (SDK/App Server) | No            | `FULL` SDK/API, `PARTIAL` CLI/App Server | default             | Built-in                  |
-| `opencode`   | `opencode`   | API                       | Yes                      | No               | Yes                  | No            | `NONE`                                   | null (configurable) | Built-in                  |
-| `openrouter` | `openrouter` | API                       | No                       | No               | No                   | No            | `FULL`                                   | null (configurable) | Built-in                  |
-| Custom       | Any          | Any                       | Configurable             | Configurable     | Configurable         | Configurable  | Must declare                             | Configurable        | Via `AIF_RUNTIME_MODULES` |
+| Runtime      | Provider     | Transports                | Resume                   | Session Fork     | Sessions             | Agent Defs    | Native Subagents | Isolated Fallback | Usage Reporting                          | Light Model         | Status                    |
+| ------------ | ------------ | ------------------------- | ------------------------ | ---------------- | -------------------- | ------------- | ---------------- | ----------------- | ---------------------------------------- | ------------------- | ------------------------- |
+| `claude`     | `anthropic`  | SDK, CLI, API             | Yes (SDK/CLI)            | Yes (SDK/CLI)    | Yes (SDK/CLI)        | Yes (SDK/CLI) | No               | No                | `FULL` (all transports)                  | `claude-haiku-3-5`  | Built-in                  |
+| `codex`      | `openai`     | SDK, CLI, App Server, API | Yes (SDK/CLI/App Server) | Yes (App Server) | Yes (SDK/App Server) | No            | SDK only         | SDK only          | `FULL` SDK/API, `PARTIAL` CLI/App Server | default             | Built-in                  |
+| `opencode`   | `opencode`   | API                       | Yes                      | No               | Yes                  | No            | No               | No                | `NONE`                                   | null (configurable) | Built-in                  |
+| `openrouter` | `openrouter` | API                       | No                       | No               | No                   | No            | No               | No                | `FULL`                                   | null (configurable) | Built-in                  |
+| Custom       | Any          | Any                       | Configurable             | Configurable     | Configurable         | Configurable  | Configurable     | Configurable      | Must declare                             | Configurable        | Via `AIF_RUNTIME_MODULES` |
 
 Capabilities are **transport-aware**: the same adapter may expose different capabilities depending on the selected transport. For example, Codex supports resume on SDK/CLI/App Server, session fork only on App Server, and session discovery on SDK/App Server. Use `resolveAdapterCapabilities(adapter, transport)` to get the effective set.
 
@@ -218,7 +218,12 @@ SDK-specific options:
 - `sandboxMode` — one of `read-only`, `workspace-write`, `danger-full-access`
 - `approvalPolicy` — one of `untrusted`, `on-failure`, `on-request`, `never`
 - `modelReasoningEffort` — one of `minimal`, `low`, `medium`, `high`, `xhigh`
+- `codexSubagentStrategy` — `native` or `isolated`; native Codex subagents are additionally gated by `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true` and required `.codex` assets on disk. Leave unset or use `isolated` to keep the legacy fresh-session skill workflow.
 - `skipGitRepoCheck` — bypass the Codex guard that refuses to run outside a git repo (SDK, App Server, and CLI)
+
+> Migration note: native Codex subagents are off by default until operators opt in with `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true`.
+> If the flag is disabled, Handoff falls back to the isolated skill-session path even when `codexSubagentStrategy: "native"` is configured.
+> If the project was bootstrapped before the AI Factory release containing `ai-factory#70`, Handoff checks for materialized `.codex/agents/*.toml` and `.codex/config.toml` before using the native path and automatically falls back to `isolated` until AI Factory is upgraded and `ai-factory init --agents claude,codex` is re-run.
 
 Invalid `options.approvalPolicy` / `options.sandboxMode` values are ignored with a runtime warning, and the adapter falls back to the effective default for that execution path.
 
@@ -464,6 +469,8 @@ Runtime descriptors declare capability flags:
 - `supportsModelDiscovery`
 - `supportsApprovals`
 - `supportsCustomEndpoint`
+- `supportsNativeSubagentWorkflows`
+- `supportsIsolatedSubagentWorkflows`
 
 `supportsSessionFork` gates adapters that can create a child session from a reusable source session. Warmup flows use this capability and must call the optional `forkSession()` method instead of resuming the source session directly. The capability is also behind the off-by-default `AIF_RUNTIME_SESSION_FORK_ENABLED=false` rollout flag; fork-capable transports expose `supportsSessionFork=true` only when that flag is enabled.
 
@@ -512,6 +519,8 @@ const adapter: RuntimeAdapter = {
       supportsModelDiscovery: true,
       supportsApprovals: false,
       supportsCustomEndpoint: true,
+      supportsIsolatedSubagentWorkflows: false,
+      supportsNativeSubagentWorkflows: false,
       usageReporting: UsageReporting.NONE,
     },
   },

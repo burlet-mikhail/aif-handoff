@@ -152,6 +152,22 @@ export interface Task {
   updatedAt: string;
 }
 
+export interface TaskActiveRuntimeSelection {
+  status: TaskStatus;
+  profileMode: "task" | "plan" | "review";
+  source: string;
+  profileId: string | null;
+  runtimeId: string;
+  providerId: string;
+  transport: RuntimeTransport;
+  model: string | null;
+  baseUrl: string | null;
+  apiKeyEnvVar: string | null;
+  headers: Record<string, string>;
+  options: Record<string, unknown>;
+  pinnedAt: string;
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;

@@ -42,6 +42,9 @@ const {
   appendTaskActivityLog,
   updateTaskHeartbeat,
   updateTaskStatus,
+  saveTaskActiveRuntimeSelection,
+  getTaskActiveRuntimeSelection,
+  clearTaskActiveRuntimeSelection,
   incrementTaskTokenUsage,
   findTasksByRoadmapAlias,
   persistTaskPlanForTask,
@@ -211,6 +214,55 @@ describe("data layer", () => {
       setTaskFields(t!.id, { implementationLog: "log data" });
       const found = findTaskById(t!.id);
       expect(found!.implementationLog).toBe("log data");
+    });
+  });
+
+  describe("active runtime selection", () => {
+    it("persists and clears a stage-scoped runtime selection", () => {
+      const task = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(task).toBeDefined();
+
+      updateTaskStatus(task!.id, "implementing");
+      saveTaskActiveRuntimeSelection(task!.id, {
+        status: "implementing",
+        profileMode: "task",
+        source: "project_default",
+        profileId: "profile-1",
+        runtimeId: "claude",
+        providerId: "anthropic",
+        transport: "sdk",
+        model: "claude-sonnet",
+        baseUrl: null,
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+        headers: {},
+        options: { effort: "medium" },
+        pinnedAt: "2026-05-13T00:00:00.000Z",
+      });
+
+      expect(getTaskActiveRuntimeSelection(task!.id)).toEqual(
+        expect.objectContaining({
+          status: "implementing",
+          profileMode: "task",
+          runtimeId: "claude",
+          model: "claude-sonnet",
+          options: { effort: "medium" },
+        }),
+      );
+
+      clearTaskActiveRuntimeSelection(task!.id);
+      expect(getTaskActiveRuntimeSelection(task!.id)).toBeNull();
+    });
+
+    it("ignores malformed active runtime selection payloads", () => {
+      const task = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(task).toBeDefined();
+
+      setTaskFields(task!.id, {
+        activeRuntimeStatus: "implementing",
+        activeRuntimeSelectionJson: JSON.stringify({ status: "implementing" }),
+      });
+
+      expect(getTaskActiveRuntimeSelection(task!.id)).toBeNull();
     });
   });
 

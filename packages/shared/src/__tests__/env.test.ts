@@ -65,6 +65,7 @@ describe("env validation", () => {
     expect(result.AGENT_MAX_REVIEW_ITERATIONS).toBe(3);
     expect(result.AGENT_USE_SUBAGENTS).toBe(false);
     expect(result.AIF_WARMUP_ENABLED).toBe(false);
+    expect(result.AIF_STAGE_RUNTIME_PIN_ENABLED).toBe(false);
     expect(result.AIF_TASK_WORKTREES_ENABLED).toBe(false);
     expect(result.AIF_RUNTIME_SESSION_FORK_ENABLED).toBe(false);
     expect(result.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(false);
@@ -82,16 +83,28 @@ describe("env validation", () => {
     const enabled = validateEnv({
       AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: "yes",
       AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED: "on",
+      AIF_STAGE_RUNTIME_PIN_ENABLED: "true",
     });
     expect(enabled.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(true);
     expect(enabled.AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED).toBe(true);
+    expect(enabled.AIF_STAGE_RUNTIME_PIN_ENABLED).toBe(true);
 
     const disabled = validateEnv({
       AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: "no",
       AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED: "off",
+      AIF_STAGE_RUNTIME_PIN_ENABLED: "0",
     });
     expect(disabled.AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED).toBe(false);
     expect(disabled.AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED).toBe(false);
+    expect(disabled.AIF_STAGE_RUNTIME_PIN_ENABLED).toBe(false);
+  });
+
+  it("should reject invalid stage runtime pin flag values", () => {
+    expect(() =>
+      validateEnv({
+        AIF_STAGE_RUNTIME_PIN_ENABLED: "maybe",
+      }),
+    ).toThrow();
   });
 
   it("should accept missing ANTHROPIC_API_KEY (uses ~/.claude/ auth)", () => {

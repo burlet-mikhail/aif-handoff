@@ -300,7 +300,7 @@ SQLite via `better-sqlite3` with `drizzle-orm` for type-safe queries. Schema is 
 
 Key tables:
 
-- **tasks** — task data, status, plan/logs, heartbeat metadata, runtime override fields (`runtime_profile_id`, `model_override`, `runtime_options_json`), runtime session id (`session_id`), auto-review convergence state (`manual_review_required`, `auto_review_state_json`), and task-level runtime-limit copy (`runtime_limit_snapshot_json`, `runtime_limit_updated_at`)
+- **tasks** — task data, status, plan/logs, heartbeat metadata, runtime override fields (`runtime_profile_id`, `model_override`, `runtime_options_json`), runtime session id (`session_id`), internal stage-scoped runtime retry pin (`active_runtime_status`, `active_runtime_selection_json`), auto-review convergence state (`manual_review_required`, `auto_review_state_json`), and task-level runtime-limit copy (`runtime_limit_snapshot_json`, `runtime_limit_updated_at`). The active runtime fields are distinct from `session_id` and `runtime_limit_snapshot_json`; they store the runtime/profile/model/options selected for same-status retries and are cleared on stage or human transitions except `retry_from_blocked`.
 - **runtime_profiles** — project-scoped or global runtime/provider profiles with non-secret transport/model config plus authoritative runtime-limit state (`runtime_limit_snapshot_json`, `runtime_limit_updated_at`)
 - **projects** — project metadata plus default runtime profile ids for tasks and chat
 - **chat_sessions / chat_messages** — persisted chat state with runtime profile/session linkage

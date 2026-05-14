@@ -25,6 +25,7 @@ import {
   generatePlanPath,
   getEnv,
   getProjectConfig,
+  isRuntimeTransport,
   logger as createLogger,
   normalizeRuntimeLimitSnapshot,
   redactProviderText,
@@ -52,6 +53,7 @@ import {
   type RuntimeLimitSnapshot,
   type RuntimeLimitWindow,
   type RuntimeLimitFutureHint,
+  type TaskActiveRuntimeSelection,
   type UpdateAppSettingsInput,
   type UpdateRuntimeProfileInput,
   type RuntimeWarmupSessionStatus,
@@ -180,6 +182,8 @@ export function toTaskResponse(task: TaskRow): Task {
     tags,
     runtimeOptionsJson,
     autoReviewStateJson,
+    activeRuntimeSelectionJson: _activeRuntimeSelectionJson,
+    activeRuntimeStatus: _activeRuntimeStatus,
     runtimeLimitSnapshotJson,
     ...rest
   } = task;
@@ -214,6 +218,89 @@ function parseRuntimeObject(raw: string | null | undefined): Record<string, unkn
   } catch {
     return null;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseStringRecord(value: unknown): Record<string, string> | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const result: Record<string, string> = {};
+  for (const [key, entryValue] of Object.entries(record)) {
+    if (typeof entryValue !== "string") {
+      return null;
+    }
+    result[key] = entryValue;
+  }
+  return result;
+}
+
+function readOptionalString(value: Record<string, unknown>, key: string): string | null | undefined {
+  const raw = value[key];
+  if (raw === null) return null;
+  if (raw === undefined) return undefined;
+  return typeof raw === "string" ? raw : undefined;
+}
+
+function parseTaskActiveRuntimeSelection(
+  raw: string | null | undefined,
+): TaskActiveRuntimeSelection | null {
+  const parsed = parseRuntimeObject(raw);
+  if (!parsed) return null;
+
+  const status = parsed.status;
+  const profileMode = parsed.profileMode;
+  const source = parsed.source;
+  const profileId = readOptionalString(parsed, "profileId");
+  const runtimeId = parsed.runtimeId;
+  const providerId = parsed.providerId;
+  const transport = parsed.transport;
+  const model = readOptionalString(parsed, "model");
+  const baseUrl = readOptionalString(parsed, "baseUrl");
+  const apiKeyEnvVar = readOptionalString(parsed, "apiKeyEnvVar");
+  const headers = parseStringRecord(parsed.headers);
+  const options = asRecord(parsed.options);
+  const pinnedAt = parsed.pinnedAt;
+
+  if (
+    typeof status !== "string" ||
+    (profileMode !== "task" && profileMode !== "plan" && profileMode !== "review") ||
+    typeof source !== "string" ||
+    profileId === undefined ||
+    typeof runtimeId !== "string" ||
+    typeof providerId !== "string" ||
+    !isRuntimeTransport(transport) ||
+    model === undefined ||
+    baseUrl === undefined ||
+    apiKeyEnvVar === undefined ||
+    !headers ||
+    !options ||
+    typeof pinnedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    status: status as TaskStatus,
+    profileMode,
+    source,
+    profileId,
+    runtimeId,
+    providerId,
+    transport,
+    model,
+    baseUrl,
+    apiKeyEnvVar,
+    headers,
+    options,
+    pinnedAt,
+  };
 }
 
 interface RuntimeProfileUsageState {
@@ -1637,6 +1724,46 @@ export function saveTaskSessionId(taskId: string, sessionId: string): void {
 export function getTaskSessionId(taskId: string): string | null {
   const task = findTaskById(taskId);
   return task?.sessionId ?? null;
+}
+
+export function saveTaskActiveRuntimeSelection(
+  taskId: string,
+  selection: TaskActiveRuntimeSelection,
+): void {
+  setTaskFields(taskId, {
+    activeRuntimeStatus: selection.status,
+    activeRuntimeSelectionJson: JSON.stringify(selection),
+  });
+}
+
+export function getTaskActiveRuntimeSelection(
+  taskId: string,
+): TaskActiveRuntimeSelection | null {
+  const task = findTaskById(taskId);
+  if (!task?.activeRuntimeSelectionJson) return null;
+
+  const selection = parseTaskActiveRuntimeSelection(task.activeRuntimeSelectionJson);
+  if (!selection) {
+    log.warn({ taskId }, "Ignoring malformed task active runtime selection");
+    return null;
+  }
+
+  if (task.activeRuntimeStatus && task.activeRuntimeStatus !== selection.status) {
+    log.warn(
+      { taskId, activeRuntimeStatus: task.activeRuntimeStatus, selectionStatus: selection.status },
+      "Ignoring mismatched task active runtime selection",
+    );
+    return null;
+  }
+
+  return selection;
+}
+
+export function clearTaskActiveRuntimeSelection(taskId: string): void {
+  setTaskFields(taskId, {
+    activeRuntimeStatus: null,
+    activeRuntimeSelectionJson: null,
+  });
 }
 
 export function incrementTaskTokenUsage(

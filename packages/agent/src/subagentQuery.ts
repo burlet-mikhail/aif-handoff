@@ -5,10 +5,12 @@ import {
   findActiveReadyRuntimeWarmupSession,
   findTaskById,
   getAppDefaultRuntimeProfileId,
+  getTaskActiveRuntimeSelection,
   getTaskSessionId,
   persistRuntimeProfileLimitSnapshot,
   renewTaskClaim,
   resolveEffectiveRuntimeProfile,
+  saveTaskActiveRuntimeSelection,
   saveTaskSessionId,
   updateTaskHeartbeat,
 } from "@aif/data";
@@ -37,6 +39,7 @@ import {
   type RuntimeAdapter,
   type RuntimeCapabilities,
   type RuntimeCapabilityName,
+  type ResolvedRuntimeProfile,
   type RuntimeRegistry,
   type RuntimeRegistryLogger,
   type RuntimeLimitSnapshot,
@@ -410,6 +413,36 @@ function pickEffort(options: Record<string, unknown>): string | null {
   return null;
 }
 
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function hydratePinnedRuntimeProfile(
+  selection: ReturnType<typeof getTaskActiveRuntimeSelection>,
+  workflow: RuntimeWorkflowSpec,
+): ResolvedRuntimeProfile | null {
+  if (!selection) return null;
+  const apiKeyEnvVar = normalizeOptionalString(selection.apiKeyEnvVar);
+  const apiKey = apiKeyEnvVar ? normalizeOptionalString(process.env[apiKeyEnvVar]) : null;
+
+  return {
+    source: selection.source,
+    profileId: selection.profileId,
+    runtimeId: selection.runtimeId,
+    providerId: selection.providerId,
+    transport: selection.transport,
+    baseUrl: selection.baseUrl,
+    apiKeyEnvVar,
+    apiKey,
+    model: selection.model,
+    headers: selection.headers,
+    options: selection.options,
+    workflow,
+  };
+}
+
 function createRuntimeRegistryLogger(): RuntimeRegistryLogger {
   return {
     debug(context, message) {
@@ -509,41 +542,87 @@ async function resolveExecutionContext(options: SubagentQueryOptions): Promise<{
 }> {
   const task = findTaskById(options.taskId);
   const profileMode = options.profileMode ?? "task";
+  const env = getEnv();
   const systemDefaultRuntimeProfileId = getAppDefaultRuntimeProfileId(profileMode);
-  const effective = resolveEffectiveRuntimeProfile({
-    taskId: options.taskId,
-    projectId: task?.projectId,
-    mode: profileMode,
-    systemDefaultRuntimeProfileId,
-  });
   const workflow = buildWorkflowSpec(options);
-  const runtimeOptionsOverride = parseRuntimeOptions(task?.runtimeOptionsJson);
-  const suppressModelFallback = options.suppressModelFallback === true;
-  const modelOverride =
-    options.modelOverride ?? (suppressModelFallback ? null : (task?.modelOverride ?? null));
+  const stageRuntimePinEnabled = env.AIF_STAGE_RUNTIME_PIN_ENABLED;
+  const pinnedSelection =
+    stageRuntimePinEnabled && task ? getTaskActiveRuntimeSelection(options.taskId) : null;
+  const canUsePinnedSelection =
+    pinnedSelection != null &&
+    task?.status != null &&
+    pinnedSelection.status === task.status &&
+    pinnedSelection.profileMode === profileMode;
+  let resolved = canUsePinnedSelection
+    ? hydratePinnedRuntimeProfile(pinnedSelection, workflow)
+    : null;
 
-  const resolved = resolveRuntimeProfile({
-    source: effective.source,
-    profile: effective.profile,
-    workflow,
-    modelOverride,
-    suppressModelFallback,
-    runtimeOptionsOverride,
-    fallbackRuntimeId: getEnv().AIF_DEFAULT_RUNTIME_ID,
-    fallbackProviderId: getEnv().AIF_DEFAULT_PROVIDER_ID,
-    env: process.env,
-    logger: {
-      debug(context, message) {
-        log.debug({ ...context }, `[runtime-resolution] ${message}`);
+  if (!resolved) {
+    const effective = resolveEffectiveRuntimeProfile({
+      taskId: options.taskId,
+      projectId: task?.projectId,
+      mode: profileMode,
+      systemDefaultRuntimeProfileId,
+    });
+    const runtimeOptionsOverride = parseRuntimeOptions(task?.runtimeOptionsJson);
+    const suppressModelFallback = options.suppressModelFallback === true;
+    const modelOverride =
+      options.modelOverride ?? (suppressModelFallback ? null : (task?.modelOverride ?? null));
+
+    resolved = resolveRuntimeProfile({
+      source: effective.source,
+      profile: effective.profile,
+      workflow,
+      modelOverride,
+      suppressModelFallback,
+      runtimeOptionsOverride,
+      fallbackRuntimeId: env.AIF_DEFAULT_RUNTIME_ID,
+      fallbackProviderId: env.AIF_DEFAULT_PROVIDER_ID,
+      env: process.env,
+      logger: {
+        debug(context, message) {
+          log.debug({ ...context }, `[runtime-resolution] ${message}`);
+        },
+        info(context, message) {
+          log.info({ ...context }, `INFO [runtime-validation] ${message}`);
+        },
+        warn(context, message) {
+          log.warn({ ...context }, `WARN [runtime-validation] ${message}`);
+        },
       },
-      info(context, message) {
-        log.info({ ...context }, `INFO [runtime-validation] ${message}`);
+    });
+
+    if (stageRuntimePinEnabled && task?.status) {
+      saveTaskActiveRuntimeSelection(options.taskId, {
+        status: task.status,
+        profileMode,
+        source: resolved.source,
+        profileId: resolved.profileId,
+        runtimeId: resolved.runtimeId,
+        providerId: resolved.providerId,
+        transport: resolved.transport,
+        model: resolved.model,
+        baseUrl: resolved.baseUrl,
+        apiKeyEnvVar: resolved.apiKeyEnvVar,
+        headers: resolved.headers,
+        options: resolved.options,
+        pinnedAt: new Date().toISOString(),
+      });
+    }
+  } else {
+    log.info(
+      {
+        taskId: options.taskId,
+        profileMode,
+        status: task?.status ?? null,
+        runtimeId: resolved.runtimeId,
+        providerId: resolved.providerId,
+        profileId: resolved.profileId,
       },
-      warn(context, message) {
-        log.warn({ ...context }, `WARN [runtime-validation] ${message}`);
-      },
-    },
-  });
+      "Using pinned task runtime selection for subagent query",
+    );
+  }
+  const suppressModelFallback = options.suppressModelFallback === true;
 
   // Resolve adapter after profile — lightModel is NOT injected into the
   // general resolution chain. Callers that need lightModel (reviewGate)

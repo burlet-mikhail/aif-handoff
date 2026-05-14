@@ -7,6 +7,8 @@ import { eq } from "drizzle-orm";
 import { chatSessions } from "../schema.js";
 import { closeDb, createTestDb, getDb } from "../db.js";
 
+const CURRENT_SCHEMA_VERSION = 22;
+
 function removeSqliteArtifacts(dbPath: string): void {
   for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
     try {
@@ -396,12 +398,14 @@ describe("db", () => {
           "runtime_limit_updated_at",
           "branch_name",
           "worktree_path",
+          "active_runtime_status",
+          "active_runtime_selection_json",
         ]),
       );
       expect(runtimeProfileColumns.map((column) => column.name)).toEqual(
         expect.arrayContaining(["runtime_limit_snapshot_json", "runtime_limit_updated_at"]),
       );
-      expect(userVersion).toBe(21);
+      expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       closeDb();
       removeSqliteArtifacts(dbPath);
@@ -451,11 +455,17 @@ describe("db", () => {
         `,
         )
         .get() as { name: string } | undefined;
+      const taskColumns = migratedSqlite.prepare(`PRAGMA table_info(tasks)`).all() as Array<{
+        name: string;
+      }>;
       const userVersion = migratedSqlite.pragma("user_version", { simple: true }) as number;
       migratedSqlite.close();
 
       expect(dirtyIndex).toBeUndefined();
-      expect(userVersion).toBe(21);
+      expect(taskColumns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(["active_runtime_status", "active_runtime_selection_json"]),
+      );
+      expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       closeDb();
       removeSqliteArtifacts(dbPath);
@@ -520,12 +530,14 @@ describe("db", () => {
           "runtime_limit_updated_at",
           "branch_name",
           "worktree_path",
+          "active_runtime_status",
+          "active_runtime_selection_json",
         ]),
       );
       expect(profileColumns.map((column) => column.name)).toEqual(
         expect.arrayContaining(["runtime_limit_snapshot_json", "runtime_limit_updated_at"]),
       );
-      expect(userVersion).toBe(21);
+      expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       closeDb();
       removeSqliteArtifacts(dbPath);
@@ -591,10 +603,12 @@ describe("db", () => {
           "auto_review_state_json",
           "runtime_limit_snapshot_json",
           "runtime_limit_updated_at",
+          "active_runtime_status",
+          "active_runtime_selection_json",
         ]),
       );
       expect(warmupTable?.name).toBe("runtime_warmup_sessions");
-      expect(userVersion).toBe(21);
+      expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       closeDb();
       removeSqliteArtifacts(dbPath);
@@ -641,7 +655,7 @@ describe("db", () => {
         "idx_runtime_warmup_active_lookup",
         "idx_runtime_warmup_expires",
       ]);
-      expect(userVersion).toBe(21);
+      expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       closeDb();
       removeSqliteArtifacts(dbPath);

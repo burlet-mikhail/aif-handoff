@@ -57,6 +57,10 @@ function toStringRecord(value: Record<string, unknown> | null): Record<string, s
  * it as a plain key/value map (non-string values are dropped). Returns
  * `undefined` when no overrides are configured.
  *
+ * Arrays are explicitly rejected even though `typeof [] === "object"` — without
+ * this guard a profile shaped like `environment: ["x"]` would leak through as
+ * an env entry `{ "0": "x" }`, which contradicts the documented contract.
+ *
  * Consumed by both the SDK path (via `parseExecutionOptions`) and the CLI path
  * (via `buildCuratedEnv` in `cli.ts`) so a single profile field reaches the
  * spawned `claude` subprocess regardless of transport. Typical use case:
@@ -67,7 +71,11 @@ function toStringRecord(value: Record<string, unknown> | null): Record<string, s
 export function resolveProfileEnvironment(
   input: RuntimeRunInput,
 ): Record<string, string> | undefined {
-  return toStringRecord(toRecord(toRecord(input.options)?.environment));
+  const candidate = toRecord(input.options)?.environment;
+  if (candidate == null || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return undefined;
+  }
+  return toStringRecord(candidate as Record<string, unknown>);
 }
 
 function readForkSourceSessionId(input: RuntimeRunInput): string | null {

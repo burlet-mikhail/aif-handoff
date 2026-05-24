@@ -97,6 +97,8 @@ export const tasks = sqliteTable("tasks", {
   modelOverride: text("model_override"),
   runtimeOptionsJson: text("runtime_options_json"),
   sessionId: text("session_id"),
+  activeRuntimeStatus: text("active_runtime_status").$type<TaskStatus | null>(),
+  activeRuntimeSelectionJson: text("active_runtime_selection_json"),
   runtimeLimitSnapshotJson: text("runtime_limit_snapshot_json"),
   runtimeLimitUpdatedAt: text("runtime_limit_updated_at"),
   lockedBy: text("locked_by"),

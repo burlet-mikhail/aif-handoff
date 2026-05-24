@@ -14,12 +14,58 @@
 ```bash
 git clone https://github.com/lee-to/aif-handoff.git
 cd aif-handoff
+
+# 1. Prepare environment
+cp .env.example .env       # required: docker-compose.yml uses `env_file: .env`
+mkdir -p projects          # default PROJECTS_DIR - must exist before first
+                           # `docker compose up`, otherwise Docker creates it
+                           # as root and the container user cannot write to it
+
+# 2. Bring the stack up
 docker compose up --build
+
+# 3. Authenticate Claude (one-time, see Docker Authentication below)
+docker compose exec agent claude login
+docker compose restart agent
 ```
 
 This builds and starts API (port 3009), Web UI (port 5180), Agent, and MCP (port 3100) in one command. Uses Angie as a reverse proxy — Web UI at `localhost:5180` proxies all API and WebSocket requests automatically.
 
-Data is persisted in Docker volumes (SQLite database, project files, and Claude auth).
+SQLite database and auth state are persisted in Docker volumes. Project files
+live in the host `PROJECTS_DIR` bind mount.
+
+### Docker Project Paths
+
+When you create a project in the UI, the **Root Path** field expects a host
+path, for example `/Users/you/projects/my-app`. The dev compose mounts the host
+directory `PROJECTS_DIR` into each container at `PROJECTS_MOUNT` (default
+`/home/www`). The API translates matching host paths to container paths when it
+persists them, so agents can access the same project as `/home/www/my-app`.
+
+The default `PROJECTS_DIR` is `${PWD}/projects`, relative to the compose file.
+To use a different host directory:
+
+```bash
+PROJECTS_DIR=/srv/aif-projects docker compose up --build
+```
+
+Create the host directory before `docker compose up`. If the bind-mount target
+is missing, Docker creates it as root-owned and the container's `node` user
+cannot write project files there.
+
+### Resetting Docker State
+
+Containers persist data in named Docker volumes (`db-data`, `claude-auth`,
+`codex-auth`):
+
+```bash
+docker compose down       # stops containers, keeps database and auth state
+docker compose down -v    # also removes named volumes - fresh slate
+                          # (you will need to `claude login` again)
+```
+
+Project files in `PROJECTS_DIR` live on the host filesystem and are not deleted
+by `down -v`. Remove them manually if you need to reset project files too.
 
 ### Docker Authentication
 

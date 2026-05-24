@@ -2,8 +2,12 @@
   "$schema": "https://turbo.build/schema.json",
   "globalPassThroughEnv": [
     "AIF_RUNTIME_SESSION_FORK_ENABLED",
+    "AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED",
+    "AIF_RUNTIME_OPENCODE_LONG_RUNNING_DISPATCHER_ENABLED",
     "AIF_USAGE_LIMITS_ENABLED",
+    "AIF_STAGE_RUNTIME_PIN_ENABLED",
     "AIF_WARMUP_ENABLED",
+    "AIF_TASK_WORKTREES_ENABLED",
     "AIF_ENABLE_CODEX_LOGIN_PROXY",
     "AIF_RUNTIME_MODULES",
     "AIF_DEFAULT_RUNTIME_ID",
@@ -41,6 +45,10 @@
       "outputs": ["dist/**"]
     },
     "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:serve": {
       "cache": false,
       "persistent": true
     },

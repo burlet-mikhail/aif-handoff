@@ -59,13 +59,13 @@ The API exposes effective selection endpoints:
 
 ## Supported Runtimes
 
-| Runtime      | Provider     | Transports                | Resume                   | Session Fork     | Sessions             | Agent Defs    | Usage Reporting                          | Light Model         | Status                    |
-| ------------ | ------------ | ------------------------- | ------------------------ | ---------------- | -------------------- | ------------- | ---------------------------------------- | ------------------- | ------------------------- |
-| `claude`     | `anthropic`  | SDK, CLI, API             | Yes (SDK/CLI)            | Yes (SDK/CLI)    | Yes (SDK/CLI)        | Yes (SDK/CLI) | `FULL` (all transports)                  | `claude-haiku-3-5`  | Built-in                  |
-| `codex`      | `openai`     | SDK, CLI, App Server, API | Yes (SDK/CLI/App Server) | Yes (App Server) | Yes (SDK/App Server) | No            | `FULL` SDK/API, `PARTIAL` CLI/App Server | default             | Built-in                  |
-| `opencode`   | `opencode`   | API                       | Yes                      | No               | Yes                  | No            | `NONE`                                   | null (configurable) | Built-in                  |
-| `openrouter` | `openrouter` | API                       | No                       | No               | No                   | No            | `FULL`                                   | null (configurable) | Built-in                  |
-| Custom       | Any          | Any                       | Configurable             | Configurable     | Configurable         | Configurable  | Must declare                             | Configurable        | Via `AIF_RUNTIME_MODULES` |
+| Runtime      | Provider     | Transports                | Resume                   | Session Fork     | Sessions             | Agent Defs    | Native Subagents | Isolated Fallback | Usage Reporting                          | Light Model         | Status                    |
+| ------------ | ------------ | ------------------------- | ------------------------ | ---------------- | -------------------- | ------------- | ---------------- | ----------------- | ---------------------------------------- | ------------------- | ------------------------- |
+| `claude`     | `anthropic`  | SDK, CLI, API             | Yes (SDK/CLI)            | Yes (SDK/CLI)    | Yes (SDK/CLI)        | Yes (SDK/CLI) | No               | No                | `FULL` (all transports)                  | `claude-haiku-3-5`  | Built-in                  |
+| `codex`      | `openai`     | SDK, CLI, App Server, API | Yes (SDK/CLI/App Server) | Yes (App Server) | Yes (SDK/App Server) | No            | SDK only         | SDK only          | `FULL` SDK/API, `PARTIAL` CLI/App Server | default             | Built-in                  |
+| `opencode`   | `opencode`   | API                       | Yes                      | No               | Yes                  | No            | No               | No                | `NONE`                                   | null (configurable) | Built-in                  |
+| `openrouter` | `openrouter` | API                       | No                       | No               | No                   | No            | No               | No                | `FULL`                                   | null (configurable) | Built-in                  |
+| Custom       | Any          | Any                       | Configurable             | Configurable     | Configurable         | Configurable  | Configurable     | Configurable      | Must declare                             | Configurable        | Via `AIF_RUNTIME_MODULES` |
 
 Capabilities are **transport-aware**: the same adapter may expose different capabilities depending on the selected transport. For example, Codex supports resume on SDK/CLI/App Server, session fork only on App Server, and session discovery on SDK/App Server. Use `resolveAdapterCapabilities(adapter, transport)` to get the effective set.
 
@@ -194,10 +194,43 @@ CLI-specific options:
 
 - `claudeCliPath` — override for the `claude` binary path (default: auto-discovered)
 - `CLAUDE_CLI_PATH` env var — same, via environment
+- `environment` — per-profile environment variables injected into the spawned `claude` subprocess. Useful for pinning `CLAUDE_CONFIG_DIR` so different projects run under different `~/.claude/` home directories (multi-account setups). Values must be strings; non-string entries are silently dropped. Per-call `execution.environment` overrides take precedence over profile-level values.
+
+Multi-account example — one profile per Claude login:
+
+```json
+{
+  "name": "Claude CLI (personal)",
+  "runtimeId": "claude",
+  "providerId": "anthropic",
+  "transport": "cli",
+  "options": {
+    "environment": { "CLAUDE_CONFIG_DIR": "/Users/me/.claude-personal" }
+  },
+  "enabled": true
+}
+```
+
+```json
+{
+  "name": "Claude CLI (work)",
+  "runtimeId": "claude",
+  "providerId": "anthropic",
+  "transport": "cli",
+  "options": {
+    "environment": { "CLAUDE_CONFIG_DIR": "/Users/me/.claude-work" }
+  },
+  "enabled": true
+}
+```
+
+Assign each profile as the default task runtime for a different Handoff project (project settings → runtime profile). Subagents spawned for that project then read credentials, plugins, and history from the matching `~/.claude-*/` directory instead of the shared host `~/.claude/`.
+
+> The same field is honored on the SDK transport via `parseExecutionOptions`, but `CLAUDE_CONFIG_DIR` only affects subprocess-style invocations. For SDK transport, pass per-account `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` via `apiKeyEnvVar` instead.
 
 ### Codex (SDK transport)
 
-Uses `@openai/codex-sdk` which wraps the Codex CLI with thread-based conversations, streaming events, and resume support. Auth is handled by the CLI's own login (`codex auth login`), same as Claude SDK.
+Uses `@openai/codex-sdk` which wraps the installed Codex CLI with thread-based conversations, streaming events, and resume support. Auth is handled by the CLI's own login (`codex auth login`), same as Claude SDK. The executable is resolved as `options.codexCliPath`, then `CODEX_CLI_PATH`, then `codex` from `PATH`; Handoff does not fall back to the SDK's vendored Codex binary.
 
 ```json
 {
@@ -213,12 +246,17 @@ Uses `@openai/codex-sdk` which wraps the Codex CLI with thread-based conversatio
 
 SDK-specific options:
 
-- `codexCliPath` — path to the `codex` binary (SDK wraps the CLI)
+- `codexCliPath` — path to the installed `codex` binary (SDK wraps the CLI); overrides `CODEX_CLI_PATH`
 - `codexConfig` — JSON object of CLI config overrides (flattened to `--config` flags)
 - `sandboxMode` — one of `read-only`, `workspace-write`, `danger-full-access`
 - `approvalPolicy` — one of `untrusted`, `on-failure`, `on-request`, `never`
 - `modelReasoningEffort` — one of `minimal`, `low`, `medium`, `high`, `xhigh`
+- `codexSubagentStrategy` — `native` or `isolated`; native Codex subagents are additionally gated by `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true` and required `.codex` assets on disk. Leave unset or use `isolated` to keep the legacy fresh-session skill workflow.
 - `skipGitRepoCheck` — bypass the Codex guard that refuses to run outside a git repo (SDK, App Server, and CLI)
+
+> Migration note: native Codex subagents are off by default until operators opt in with `AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED=true`.
+> If the flag is disabled, Handoff falls back to the isolated skill-session path even when `codexSubagentStrategy: "native"` is configured.
+> If the project was bootstrapped before the AI Factory release containing `ai-factory#70`, Handoff checks for materialized `.codex/agents/*.toml` and `.codex/config.toml` before using the native path and automatically falls back to `isolated` until AI Factory is upgraded and `ai-factory init --agents claude,codex` is re-run.
 
 Invalid `options.approvalPolicy` / `options.sandboxMode` values are ignored with a runtime warning, and the adapter falls back to the effective default for that execution path.
 
@@ -265,10 +303,11 @@ Runs `codex app-server` over stdio JSONL RPC and keeps Codex thread IDs as resum
 App Server operational notes:
 
 - Reuses the same key options as other Codex transports: `codexCliPath`, `approvalPolicy`, `sandboxMode`, `modelReasoningEffort`, and `skipGitRepoCheck`.
+- Uses the installed Codex CLI only: `options.codexCliPath`, then `CODEX_CLI_PATH`, then `codex` from `PATH`.
 - Does not add a transport-local hard run timeout. Long-running stages are governed by the shared runtime execution config; `options.appServerRequestTimeoutMs` only controls individual JSONL RPC request waits.
 - Human approval bridging is not implemented yet. App Server approval requests, including command, file-change, permissions, apply-patch, and exec-command requests, are denied by design and surfaced as permission failures/events; App Server therefore reports `supportsApprovals: false` even though approval request events are observable. Unattended App Server profiles should use `approvalPolicy="never"` only when the caller has intentionally accepted that trust level.
 - Session list APIs are supported through `thread/list` and `thread/read`; AIF stores Codex thread IDs as runtime session IDs for resume.
-- Docker images already include `@openai/codex` and mount persistent `~/.codex` auth state (`codex-auth` volume), so no extra Docker wiring is required for this transport.
+- Docker images must have the `codex` executable on `PATH` or set `CODEX_CLI_PATH`; they mount persistent `~/.codex` auth state (`codex-auth` volume).
 - On Windows, configured `codexCliPath` / `CODEX_CLI_PATH` values are treated as executable paths or shim names, not shell snippets. Values containing command-shell metacharacters are rejected before spawn.
 
 ### Codex (API transport)
@@ -463,6 +502,8 @@ Runtime descriptors declare capability flags:
 - `supportsModelDiscovery`
 - `supportsApprovals`
 - `supportsCustomEndpoint`
+- `supportsNativeSubagentWorkflows`
+- `supportsIsolatedSubagentWorkflows`
 
 `supportsSessionFork` gates adapters that can create a child session from a reusable source session. Warmup flows use this capability and must call the optional `forkSession()` method instead of resuming the source session directly. The capability is also behind the off-by-default `AIF_RUNTIME_SESSION_FORK_ENABLED=false` rollout flag; fork-capable transports expose `supportsSessionFork=true` only when that flag is enabled.
 
@@ -511,6 +552,8 @@ const adapter: RuntimeAdapter = {
       supportsModelDiscovery: true,
       supportsApprovals: false,
       supportsCustomEndpoint: true,
+      supportsIsolatedSubagentWorkflows: false,
+      supportsNativeSubagentWorkflows: false,
       usageReporting: UsageReporting.NONE,
     },
   },

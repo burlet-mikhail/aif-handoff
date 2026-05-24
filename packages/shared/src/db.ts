@@ -113,6 +113,8 @@ function ensureTables(sqlite: Database.Database): void {
       model_override TEXT,
       runtime_options_json TEXT,
       session_id TEXT,
+      active_runtime_status TEXT,
+      active_runtime_selection_json TEXT,
       runtime_limit_snapshot_json TEXT,
       runtime_limit_updated_at TEXT,
       locked_by TEXT,
@@ -694,6 +696,14 @@ const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
+    `,
+  },
+  {
+    version: 22,
+    description: "Add stage-scoped active runtime selection to tasks",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN active_runtime_status TEXT;
+      ALTER TABLE tasks ADD COLUMN active_runtime_selection_json TEXT;
     `,
   },
 ];

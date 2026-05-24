@@ -908,6 +908,74 @@ describe("Claude runtime adapter", () => {
     expect(call.options.effort).toBe("high");
   });
 
+  it("forwards profile.options.environment to Claude SDK env with documented precedence", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    queryMock.mockImplementation(immediateSuccess("env-ok"));
+    const adapter = createClaudeRuntimeAdapter();
+
+    await adapter.run(
+      createRunInput({
+        model: "sonnet",
+        options: {
+          apiKeyEnvVar: "ANTHROPIC_API_KEY",
+          environment: {
+            PROFILE_KEY: "profile-value",
+            HOOK_OVER: "from-profile",
+            PRECEDENCE_KEY: "from-profile",
+            DROP_NUMBER: 42 as unknown as string,
+          },
+        },
+        execution: {
+          environment: { PER_CALL_KEY: "per-call-value", PRECEDENCE_KEY: "from-execution" },
+          hooks: {
+            environment: {
+              LEGACY_KEY: "legacy-value",
+              HOOK_OVER: "from-hook",
+              PRECEDENCE_KEY: "from-hook",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    const env = queryMock.mock.calls[0][0].options.env as Record<string, string>;
+
+    // profile.options.environment is forwarded to the SDK
+    expect(env.PROFILE_KEY).toBe("profile-value");
+    // legacy execution.hooks.environment still works on its own
+    expect(env.LEGACY_KEY).toBe("legacy-value");
+    // per-call execution.environment still works on its own
+    expect(env.PER_CALL_KEY).toBe("per-call-value");
+    // precedence (later wins): hooks < options < execution
+    expect(env.HOOK_OVER).toBe("from-profile");
+    expect(env.PRECEDENCE_KEY).toBe("from-execution");
+    // non-string entries from profile.options.environment are dropped
+    expect(env).not.toHaveProperty("DROP_NUMBER");
+  });
+
+  it("ignores arrays passed as profile.options.environment (plain-object guard)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    queryMock.mockImplementation(immediateSuccess("env-array"));
+    const adapter = createClaudeRuntimeAdapter();
+
+    await adapter.run(
+      createRunInput({
+        model: "sonnet",
+        options: {
+          apiKeyEnvVar: "ANTHROPIC_API_KEY",
+          environment: ["x", "y"] as unknown as Record<string, string>,
+        },
+      }),
+    );
+
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    const env = queryMock.mock.calls[0][0].options.env as Record<string, string>;
+    // numeric-keyed array entries must not leak through as env vars
+    expect(env).not.toHaveProperty("0");
+    expect(env).not.toHaveProperty("1");
+  });
+
   it("maps numeric effort values to supported Claude effort levels", async () => {
     queryMock.mockImplementation(immediateSuccess("effort-mapped"));
     const adapter = createClaudeRuntimeAdapter();

@@ -256,8 +256,15 @@ describe("coordinator", () => {
         projectId: "test-project",
         title: "Resume impl",
         status: "implementing",
+        activeRuntimeStatus: "implementing",
+        activeRuntimeSelectionJson: JSON.stringify({ status: "implementing" }),
       })
       .run();
+    vi.mocked(runImplementer).mockImplementationOnce(async () => {
+      const task = db.select().from(tasks).where(eq(tasks.id, "task-impl")).get();
+      expect(task!.activeRuntimeStatus).toBe("implementing");
+      expect(task!.activeRuntimeSelectionJson).toBe(JSON.stringify({ status: "implementing" }));
+    });
 
     await pollAndProcess();
 
@@ -266,6 +273,8 @@ describe("coordinator", () => {
     expect(runReviewer).toHaveBeenCalledWith("task-impl", "/tmp/test");
     const task = db.select().from(tasks).where(eq(tasks.id, "task-impl")).get();
     expect(task!.status).toBe("done");
+    expect(task!.activeRuntimeStatus).toBeNull();
+    expect(task!.activeRuntimeSelectionJson).toBeNull();
   });
 
   it("should pick up review tasks and dispatch reviewer", async () => {

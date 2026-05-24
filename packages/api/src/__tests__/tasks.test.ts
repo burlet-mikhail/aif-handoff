@@ -1902,6 +1902,31 @@ describe("tasks API", () => {
       expect(body.lastHeartbeatAt).toBeTruthy();
     });
 
+    it("should clear active runtime selection on human status transitions", async () => {
+      const db = testDb.current;
+      db.insert(tasks)
+        .values({
+          id: "ev-clear-runtime-pin",
+          projectId: "test-project",
+          title: "Clear runtime pin",
+          status: "done",
+          activeRuntimeStatus: "done",
+          activeRuntimeSelectionJson: JSON.stringify({ status: "done" }),
+        })
+        .run();
+
+      const res = await app.request("/tasks/ev-clear-runtime-pin/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "request_changes" }),
+      });
+
+      expect(res.status).toBe(200);
+      const task = db.select().from(tasks).where(eq(tasks.id, "ev-clear-runtime-pin")).get();
+      expect(task!.activeRuntimeStatus).toBeNull();
+      expect(task!.activeRuntimeSelectionJson).toBeNull();
+    });
+
     it("should send plan_ready task back to planning on request_replanning", async () => {
       const db = testDb.current;
       db.insert(tasks)
@@ -1935,6 +1960,8 @@ describe("tasks API", () => {
           status: "blocked_external",
           blockedFromStatus: "implementing",
           blockedReason: "rate limit",
+          activeRuntimeStatus: "implementing",
+          activeRuntimeSelectionJson: JSON.stringify({ status: "implementing" }),
         })
         .run();
 
@@ -1950,6 +1977,9 @@ describe("tasks API", () => {
       expect(body.blockedFromStatus).toBeNull();
       expect(body.blockedReason).toBeNull();
       expect(body.retryAfter).toBeNull();
+      const task = db.select().from(tasks).where(eq(tasks.id, "ev-3")).get();
+      expect(task!.activeRuntimeStatus).toBe("implementing");
+      expect(task!.activeRuntimeSelectionJson).toBe(JSON.stringify({ status: "implementing" }));
     });
 
     it("should reject retry_from_blocked without blockedFromStatus", async () => {

@@ -700,4 +700,64 @@ describe("runClaudeCli", () => {
 
     expect(onStderr).toHaveBeenCalledWith("some warning");
   });
+
+  it("injects profile.options.environment into the spawned subprocess env", async () => {
+    const input = createInput({
+      options: {
+        environment: { CLAUDE_CONFIG_DIR: "/tmp/test-claude-personal" },
+      },
+    });
+    const promise = runClaudeCli(input);
+
+    simulateStreamAndClose(0, successfulStream({ sessionId: "sess-profile-env", text: "Done" }));
+
+    await promise;
+
+    const { spawnOptions } = getSpawnInvocation();
+    const env = spawnOptions.env as Record<string, string>;
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/test-claude-personal");
+  });
+
+  it("lets execution.environment override profile.options.environment", async () => {
+    const input = createInput({
+      options: {
+        environment: { CLAUDE_CONFIG_DIR: "/tmp/profile-default" },
+      },
+      execution: {
+        environment: { CLAUDE_CONFIG_DIR: "/tmp/per-call-override" },
+      },
+    });
+    const promise = runClaudeCli(input);
+
+    simulateStreamAndClose(0, successfulStream({ sessionId: "sess-env-override", text: "Done" }));
+
+    await promise;
+
+    const { spawnOptions } = getSpawnInvocation();
+    const env = spawnOptions.env as Record<string, string>;
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/per-call-override");
+  });
+
+  it("ignores non-string values in profile.options.environment", async () => {
+    const input = createInput({
+      options: {
+        environment: {
+          CLAUDE_CONFIG_DIR: "/tmp/valid",
+          INVALID_NUMBER: 42 as unknown as string,
+          INVALID_NULL: null as unknown as string,
+        },
+      },
+    });
+    const promise = runClaudeCli(input);
+
+    simulateStreamAndClose(0, successfulStream({ sessionId: "sess-env-filter", text: "Done" }));
+
+    await promise;
+
+    const { spawnOptions } = getSpawnInvocation();
+    const env = spawnOptions.env as Record<string, string>;
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/valid");
+    expect(env).not.toHaveProperty("INVALID_NUMBER");
+    expect(env).not.toHaveProperty("INVALID_NULL");
+  });
 });

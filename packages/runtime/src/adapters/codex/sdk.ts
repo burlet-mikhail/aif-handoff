@@ -187,10 +187,8 @@ function buildCodexOptions(input: RuntimeRunInput, logger?: CodexSdkLogger): Cod
   }
 
   // CLI path override
-  const codexPath = readString(options.codexCliPath) ?? readString(process.env.CODEX_CLI_PATH);
-  if (codexPath) {
-    codexOpts.codexPathOverride = codexPath;
-  }
+  codexOpts.codexPathOverride =
+    readString(options.codexCliPath) ?? readString(process.env.CODEX_CLI_PATH) ?? "codex";
 
   // Codex CLI config overrides — cast to satisfy CodexConfigObject (non-exported recursive type)
   const configOverride = asRecord(options.codexConfig);

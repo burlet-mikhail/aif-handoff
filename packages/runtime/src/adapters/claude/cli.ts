@@ -19,7 +19,7 @@ import {
 } from "../../timeouts.js";
 import { classifyClaudeResultSubtype, classifyClaudeRuntimeError } from "./errors.js";
 import { normalizeClaudeLimitSnapshot } from "./limit.js";
-import { normalizeClaudeEffort } from "./options.js";
+import { normalizeClaudeEffort, resolveProfileEnvironment } from "./options.js";
 import { buildToolUseEvents } from "../../toolEvents.js";
 import { parseClaudeAskUserQuestion } from "./questions.js";
 import type { ClaudeProviderIdentity } from "./providerIdentity.js";
@@ -799,7 +799,10 @@ export async function runClaudeCli(
   });
   const apiKeyEnvVar =
     typeof options.apiKeyEnvVar === "string" ? options.apiKeyEnvVar : "ANTHROPIC_API_KEY";
-  const env = buildCuratedEnv(apiKeyEnvVar, execution?.environment);
+  const env = buildCuratedEnv(apiKeyEnvVar, {
+    ...resolveProfileEnvironment(input),
+    ...execution?.environment,
+  });
 
   logger?.info?.(
     {

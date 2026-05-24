@@ -1,4 +1,5 @@
 import {
+  clearTaskActiveRuntimeSelection,
   clearTaskRuntimeLimitSnapshot,
   blockTaskForRuntimeGateIfEligible,
   evaluateRuntimeLimitGate,
@@ -363,6 +364,9 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
   const sourceStatus = task.status;
   const taskTitle = task.title;
 
+  if (sourceStatus !== stage.inProgress) {
+    clearTaskActiveRuntimeSelection(task.id);
+  }
   updateTaskStatus(task.id, stage.inProgress, {}, { title: taskTitle, fromStatus: sourceStatus });
 
   log.debug(
@@ -377,6 +381,7 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
     flushActivityQueue(task.id);
 
     if (stage.label === "implementer" && task.skipReview) {
+      clearTaskActiveRuntimeSelection(task.id);
       clearTaskRuntimeLimitSnapshot(task.id);
       updateTaskStatus(task.id, "done", CLEAN_STATE_RESET, {
         title: taskTitle,
@@ -396,6 +401,7 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
       });
 
       if (outcome?.status === "manual_review_required") {
+        clearTaskActiveRuntimeSelection(task.id);
         clearTaskRuntimeLimitSnapshot(task.id);
         updateTaskStatus(
           task.id,
@@ -429,6 +435,7 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
       }
 
       if (outcome?.status === "rework_requested") {
+        clearTaskActiveRuntimeSelection(task.id);
         clearTaskRuntimeLimitSnapshot(task.id);
         updateTaskStatus(
           task.id,
@@ -458,6 +465,7 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
       }
 
       if (outcome?.status === "accepted") {
+        clearTaskActiveRuntimeSelection(task.id);
         clearTaskRuntimeLimitSnapshot(task.id);
         updateTaskStatus(task.id, "done", CLEAN_STATE_RESET, {
           title: taskTitle,
@@ -471,6 +479,7 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
       }
     }
 
+    clearTaskActiveRuntimeSelection(task.id);
     clearTaskRuntimeLimitSnapshot(task.id);
     updateTaskStatus(
       task.id,

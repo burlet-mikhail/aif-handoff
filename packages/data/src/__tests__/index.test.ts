@@ -42,6 +42,9 @@ const {
   appendTaskActivityLog,
   updateTaskHeartbeat,
   updateTaskStatus,
+  saveTaskActiveRuntimeSelection,
+  getTaskActiveRuntimeSelection,
+  clearTaskActiveRuntimeSelection,
   incrementTaskTokenUsage,
   findTasksByRoadmapAlias,
   persistTaskPlanForTask,
@@ -62,6 +65,7 @@ const {
   updateScheduledAt,
   getAutoQueueMode,
   setAutoQueueMode,
+  getMinBacklogPosition,
   nextBacklogTaskByPosition,
   listAutoQueueProjects,
   countActivePipelineTasksForProject,
@@ -210,6 +214,55 @@ describe("data layer", () => {
       setTaskFields(t!.id, { implementationLog: "log data" });
       const found = findTaskById(t!.id);
       expect(found!.implementationLog).toBe("log data");
+    });
+  });
+
+  describe("active runtime selection", () => {
+    it("persists and clears a stage-scoped runtime selection", () => {
+      const task = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(task).toBeDefined();
+
+      updateTaskStatus(task!.id, "implementing");
+      saveTaskActiveRuntimeSelection(task!.id, {
+        status: "implementing",
+        profileMode: "task",
+        source: "project_default",
+        profileId: "profile-1",
+        runtimeId: "claude",
+        providerId: "anthropic",
+        transport: "sdk",
+        model: "claude-sonnet",
+        baseUrl: null,
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+        headers: {},
+        options: { effort: "medium" },
+        pinnedAt: "2026-05-13T00:00:00.000Z",
+      });
+
+      expect(getTaskActiveRuntimeSelection(task!.id)).toEqual(
+        expect.objectContaining({
+          status: "implementing",
+          profileMode: "task",
+          runtimeId: "claude",
+          model: "claude-sonnet",
+          options: { effort: "medium" },
+        }),
+      );
+
+      clearTaskActiveRuntimeSelection(task!.id);
+      expect(getTaskActiveRuntimeSelection(task!.id)).toBeNull();
+    });
+
+    it("ignores malformed active runtime selection payloads", () => {
+      const task = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(task).toBeDefined();
+
+      setTaskFields(task!.id, {
+        activeRuntimeStatus: "implementing",
+        activeRuntimeSelectionJson: JSON.stringify({ status: "implementing" }),
+      });
+
+      expect(getTaskActiveRuntimeSelection(task!.id)).toBeNull();
     });
   });
 
@@ -1149,6 +1202,29 @@ describe("data layer", () => {
       expect(next).toBeDefined();
       expect(next!.position).toBeLessThanOrEqual(a!.position);
       expect([a!.id, b!.id]).toContain(next!.id);
+    });
+
+    it("createTask honors an explicit position override for batch import callers", () => {
+      createTask({ projectId: "proj-1", title: "Default", description: "" });
+      const positioned = createTask({
+        projectId: "proj-1",
+        title: "Positioned",
+        description: "",
+        position: 123,
+      });
+
+      expect(positioned?.position).toBe(123);
+    });
+
+    it("getMinBacklogPosition returns null for empty backlog and the project minimum otherwise", () => {
+      expect(getMinBacklogPosition("proj-1")).toBeNull();
+      seedProject("proj-2");
+      createTask({ projectId: "proj-1", title: "Later", description: "", position: 500 });
+      createTask({ projectId: "proj-1", title: "Earlier", description: "", position: 100 });
+      createTask({ projectId: "proj-2", title: "Other project", description: "", position: -100 });
+
+      expect(getMinBacklogPosition("proj-1")).toBe(100);
+      expect(getMinBacklogPosition("proj-2")).toBe(-100);
     });
 
     it("nextBacklogTaskByPosition ignores tasks scheduled in the future", () => {

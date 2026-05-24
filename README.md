@@ -62,10 +62,56 @@ Set `MCP_PORT` in your shell or root `.env` before `npm run dev` if you also wan
 ```bash
 git clone https://github.com/lee-to/aif-handoff.git
 cd aif-handoff
+
+# 1. Prepare environment
+cp .env.example .env       # required: docker-compose.yml uses `env_file: .env`
+mkdir -p projects          # default PROJECTS_DIR — must exist before first
+                           # `docker compose up`, otherwise Docker creates it
+                           # as root and the container user cannot write to it
+
+# 2. Bring the stack up
 docker compose up --build
+
+# 3. Authenticate Claude (one-time, see Authentication below for details)
+docker compose exec agent claude login
+docker compose restart agent
 ```
 
 Development starts three services by default. If `MCP_PORT` is set to a valid integer port, it starts a fourth service for MCP over HTTP. Docker starts all four services.
+
+#### Project paths (host ↔ container)
+
+When you create a project in the UI, the **Root Path** field expects a host
+path (for example `/Users/you/projects/my-app`). The dev compose mounts
+the host directory `PROJECTS_DIR` onto `PROJECTS_MOUNT` (default
+`/home/www`) inside every container. The API/agent containers see your
+project as `/home/www/my-app` and the API transparently translates the
+host path you typed to the matching container path when persisting it.
+
+The default `PROJECTS_DIR` is `${PWD}/projects` (relative to the compose
+file). To use a different host directory:
+
+```bash
+PROJECTS_DIR=/srv/aif-projects docker compose up --build
+```
+
+The directory must exist on the host before `docker compose up` —
+Docker creates missing bind-mount targets as root-owned, which makes
+them unwritable from the container's `node` user.
+
+#### Resetting state
+
+Containers persist data in named Docker volumes (`db-data`, `claude-auth`,
+`codex-auth`):
+
+```bash
+docker compose down       # stops containers, keeps the database and auth state
+docker compose down -v    # also removes named volumes — fresh slate
+                          # (you will need to `claude login` again)
+```
+
+Project files in `PROJECTS_DIR` live on the host filesystem and are
+never deleted by `down -v` — remove them manually if needed.
 
 | Service   | URL                               | Description                                  |
 | --------- | --------------------------------- | -------------------------------------------- |

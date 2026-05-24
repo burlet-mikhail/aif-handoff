@@ -50,6 +50,34 @@ function toStringRecord(value: Record<string, unknown> | null): Record<string, s
   return Object.fromEntries(entries);
 }
 
+/**
+ * Resolve per-profile environment overrides from `profile.options.environment`.
+ *
+ * Reads a `Record<string, string>` from the profile's options block and returns
+ * it as a plain key/value map (non-string values are dropped). Returns
+ * `undefined` when no overrides are configured.
+ *
+ * Arrays are explicitly rejected even though `typeof [] === "object"` — without
+ * this guard a profile shaped like `environment: ["x"]` would leak through as
+ * an env entry `{ "0": "x" }`, which contradicts the documented contract.
+ *
+ * Consumed by both the SDK path (via `parseExecutionOptions`) and the CLI path
+ * (via `buildCuratedEnv` in `cli.ts`) so a single profile field reaches the
+ * spawned `claude` subprocess regardless of transport. Typical use case:
+ * pinning `CLAUDE_CONFIG_DIR` per profile so different Handoff projects can run
+ * under different `~/.claude/` home directories (multi-account setups) without
+ * mutating the host process environment.
+ */
+export function resolveProfileEnvironment(
+  input: RuntimeRunInput,
+): Record<string, string> | undefined {
+  const candidate = toRecord(input.options)?.environment;
+  if (candidate == null || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return undefined;
+  }
+  return toStringRecord(candidate as Record<string, unknown>);
+}
+
 function readForkSourceSessionId(input: RuntimeRunInput): string | null {
   const sourceSessionId = (input as Partial<RuntimeSessionForkInput>).sourceSessionId;
   return typeof sourceSessionId === "string" && sourceSessionId.trim().length > 0
@@ -129,6 +157,7 @@ export function parseExecutionOptions(
       exec?.runTimeoutMs ?? (typeof src.runTimeoutMs === "number" ? src.runTimeoutMs : undefined),
     environment: {
       ...toStringRecord(toRecord(src.environment)),
+      ...resolveProfileEnvironment(input),
       ...exec?.environment,
     },
     stderr:

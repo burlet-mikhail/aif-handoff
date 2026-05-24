@@ -5,6 +5,7 @@ import {
   buildCodexAppServerEnv,
   buildWindowsAppServerCommandLine,
   hasProcessExited,
+  resolveCodexAppServerExecutable,
   terminateCodexAppServerProcess,
 } from "../process.js";
 
@@ -13,6 +14,34 @@ afterEach(() => {
 });
 
 describe("codex app-server process helpers", () => {
+  it("resolves executable from options, env, then installed codex on PATH", () => {
+    expect(
+      resolveCodexAppServerExecutable({
+        runtimeId: "codex",
+        options: { codexCliPath: "/custom/codex" },
+        transport: "sdk",
+      }),
+    ).toBe("/custom/codex");
+
+    vi.stubEnv("CODEX_CLI_PATH", "/env/codex");
+    expect(
+      resolveCodexAppServerExecutable({
+        runtimeId: "codex",
+        options: {},
+        transport: "sdk",
+      }),
+    ).toBe("/env/codex");
+
+    vi.unstubAllEnvs();
+    expect(
+      resolveCodexAppServerExecutable({
+        runtimeId: "codex",
+        options: {},
+        transport: "sdk",
+      }),
+    ).toBe("codex");
+  });
+
   it("builds a Windows command line for safe Codex shim paths", () => {
     expect(buildWindowsAppServerCommandLine("codex", ["app-server"])).toBe("codex app-server");
     expect(

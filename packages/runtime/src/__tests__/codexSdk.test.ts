@@ -536,6 +536,35 @@ describe("runCodexSdk", () => {
     expect(constructorOptions.env?.npm_config_registry).toBeUndefined();
   });
 
+  it("uses options.codexCliPath, CODEX_CLI_PATH, then installed codex for SDK runs", async () => {
+    mockRunStreamed.mockResolvedValue({
+      events: createMockEvents([
+        { type: "thread.started", thread_id: "thread-codex-path" },
+        {
+          type: "turn.completed",
+          usage: { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0 },
+        },
+      ]),
+    });
+
+    await runCodexSdk(createRunInput({ options: { codexCliPath: "/custom/codex" } }));
+    expect(mockCodexConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ codexPathOverride: "/custom/codex" }),
+    );
+
+    vi.stubEnv("CODEX_CLI_PATH", "/env/codex");
+    await runCodexSdk(createRunInput());
+    expect(mockCodexConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ codexPathOverride: "/env/codex" }),
+    );
+
+    vi.unstubAllEnvs();
+    await runCodexSdk(createRunInput());
+    expect(mockCodexConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ codexPathOverride: "codex" }),
+    );
+  });
+
   it("prepends execution.systemPromptAppend to the user prompt (no native system slot on Thread)", async () => {
     mockRunStreamed.mockResolvedValue({
       events: createMockEvents([

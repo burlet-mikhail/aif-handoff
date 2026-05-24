@@ -11,6 +11,7 @@ import {
   type TaskEvent,
 } from "@aif/shared";
 import {
+  clearTaskActiveRuntimeSelection,
   findProjectById,
   findTaskById,
   getLatestHumanComment,
@@ -219,6 +220,9 @@ function handleRegularTransition(input: EventHandlerInput): EventHandlerResult {
   }
 
   const nowIso = new Date().toISOString();
+  if (event !== "retry_from_blocked") {
+    clearTaskActiveRuntimeSelection(task.id);
+  }
   setTaskFields(task.id, { ...transition.patch, lastHeartbeatAt: nowIso, updatedAt: nowIso });
 
   const updated = findTaskById(task.id);
@@ -304,6 +308,8 @@ function handleAcceptExistingPlan(input: EventHandlerInput): EventHandlerResult 
 
   setTaskFields(input.taskId, {
     status: "plan_ready",
+    activeRuntimeStatus: null,
+    activeRuntimeSelectionJson: null,
     blockedReason: null,
     blockedFromStatus: null,
     retryAfter: null,

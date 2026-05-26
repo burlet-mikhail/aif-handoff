@@ -142,6 +142,10 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
       : filteredTasks;
 
     return [...searched].sort((a, b) => {
+      const aDone = a.status === "done" || a.status === "verified";
+      const bDone = b.status === "done" || b.status === "verified";
+      if (aDone !== bDone) return aDone ? 1 : -1;
+
       if (listSort === "updated_desc") {
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       }
@@ -159,7 +163,7 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
 
       const statusOrderDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
       if (statusOrderDiff !== 0) return statusOrderDiff;
-      return a.position - b.position;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
   }, [filteredTasks, listQuery, listSort]);
 

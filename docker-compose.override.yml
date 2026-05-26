@@ -1,0 +1,41 @@
+# Overrides docker-compose.production.yml for helm-server deployment.
+services:
+  web:
+    ports: !override
+      - "127.0.0.1:5180:80"
+    entrypoint: !override
+      - /bin/sh
+      - -c
+      - "mkdir -p /run/angie && exec angie -g 'daemon off;'"
+    volumes: !override []
+
+  api:
+    read_only: false
+    environment:
+      - GH_CONFIG_DIR=/home/node/.claude/.gh
+    volumes: !override
+      - db-data:/data
+      - /home/helm-server/projects:/home/www
+      - claude-auth:/home/node/.claude
+      - codex-auth:/home/node/.codex
+      - /home/helm-server/.ssh:/home/node/.ssh:ro
+      - /home/helm-server/aif-handoff/.gitconfig-agent:/home/node/.gitconfig:ro
+
+  agent:
+    environment:
+      - GH_CONFIG_DIR=/home/node/.claude/.gh
+    volumes: !override
+      - db-data:/data
+      - /home/helm-server/projects:/home/www
+      - claude-auth:/home/node/.claude
+      - codex-auth:/home/node/.codex
+      - /home/helm-server/.ssh:/home/node/.ssh:ro
+      - /home/helm-server/aif-handoff/.gitconfig-agent:/home/node/.gitconfig:ro
+
+  mcp:
+    read_only: false
+    ports: !override
+      - "127.0.0.1:3400:3100"
+    volumes: !override
+      - db-data:/data
+      - /home/helm-server/projects:/home/www

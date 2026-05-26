@@ -27,6 +27,7 @@ import { MetricsDialog, type AggregateProjectTotals } from "./MetricsDialog";
 import { RoadmapDialog } from "./RoadmapDialog";
 import { GlobalSettingsDialog } from "./GlobalSettingsDialog";
 import { GitPanel } from "@/components/project/GitPanel";
+import { ImportTasksButton } from "@/components/project/ImportTasksButton";
 import { useTasks } from "@/hooks/useTasks";
 import { RuntimeUsageDialog } from "./RuntimeUsageDialog";
 
@@ -234,6 +235,7 @@ export function Header({
             <GitBranch className="h-3.5 w-3.5" />
             <span className="hidden md:inline">GIT</span>
           </Button>
+          <ImportTasksButton projectId={selectedProject?.id ?? null} />
           <Button
             variant="outline"
             size="sm"

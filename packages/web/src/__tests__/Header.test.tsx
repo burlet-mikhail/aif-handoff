@@ -80,6 +80,10 @@ vi.mock("@/components/project/GitPanel", () => ({
   GitPanel: () => null,
 }));
 
+vi.mock("@/components/project/ImportTasksButton", () => ({
+  ImportTasksButton: () => null,
+}));
+
 vi.mock("@/components/project/WarmupDialog", () => ({
   WarmupDialog: ({ open }: { open: boolean }) => (open ? <div>Warmup dialog open</div> : null),
 }));

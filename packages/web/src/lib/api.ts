@@ -853,4 +853,38 @@ export const api = {
       body: JSON.stringify(input),
     });
   },
+
+  async getTasksImportStatus(projectId: string): Promise<{
+    available: boolean;
+    candidateCount: number;
+    subfolders: string[];
+  }> {
+    console.debug("[api] GET /projects/%s/tasks-import/status", projectId);
+    return request<{
+      available: boolean;
+      candidateCount: number;
+      subfolders: string[];
+    }>(`/projects/${projectId}/tasks-import/status`);
+  },
+
+  async importTasks(projectId: string): Promise<{
+    created: number;
+    skipped: number;
+    errors: Array<{
+      file: string;
+      reason: "empty" | "too_large" | "read_failed" | "move_failed";
+    }>;
+    taskIds: string[];
+  }> {
+    console.debug("[api] POST /projects/%s/tasks-import", projectId);
+    return request<{
+      created: number;
+      skipped: number;
+      errors: Array<{
+        file: string;
+        reason: "empty" | "too_large" | "read_failed" | "move_failed";
+      }>;
+      taskIds: string[];
+    }>(`/projects/${projectId}/tasks-import`, { method: "POST" }, IMPORT_ROADMAP_TIMEOUT_MS);
+  },
 };

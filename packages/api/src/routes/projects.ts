@@ -40,6 +40,7 @@ import {
   importGeneratedTasks,
   RoadmapGenerationError,
 } from "../services/roadmapGeneration.js";
+import { getTasksImportStatus, importTasksFromFolder } from "../services/taskImport.js";
 import { validateProjectScopedRuntimeProfileSelections } from "../services/runtimeProfileScope.js";
 import {
   resolveApiWarmupSupport,
@@ -713,6 +714,36 @@ projectsRouter.delete("/:id", (c) => {
   deleteProject(id);
   log.debug({ projectId: id }, "Project deleted");
   return c.json({ success: true });
+});
+
+// GET /projects/:id/tasks-import/status — preflight for ImportTasksButton
+projectsRouter.get("/:id/tasks-import/status", async (c) => {
+  const { id } = c.req.param();
+  const project = findProjectById(id);
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  const status = await getTasksImportStatus(project.rootPath);
+  return c.json(status);
+});
+
+// POST /projects/:id/tasks-import — perform import, broadcast each created task
+projectsRouter.post("/:id/tasks-import", async (c) => {
+  const { id } = c.req.param();
+  const project = findProjectById(id);
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  const result = await importTasksFromFolder({
+    projectId: id,
+    projectRootPath: project.rootPath,
+  });
+  for (const taskId of result.taskIds) {
+    const task = findTaskById(taskId);
+    if (task) {
+      broadcast({ type: "task:created", payload: toTaskBroadcastPayload(task) });
+    }
+  }
+  if (result.taskIds.length > 0) {
+    broadcast({ type: "agent:wake", payload: { id } });
+  }
+  return c.json(result);
 });
 
 // -- Background roadmap generation job --

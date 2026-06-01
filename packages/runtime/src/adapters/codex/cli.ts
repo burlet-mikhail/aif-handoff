@@ -232,12 +232,21 @@ const ALLOWED_ENV_PREFIXES = [
 ];
 
 /**
- * Env vars that must NOT be forwarded to the Codex CLI even if they match
- * an allowed prefix.  `OPENAI_BASE_URL` is deprecated by the Codex CLI —
- * it causes a WebSocket endpoint mis-derivation (`wss://.../v1/responses`)
- * and 500 errors.  The CLI reads `openai_base_url` from `config.toml` instead.
+ * Env vars that must NOT be forwarded to the Codex CLI by default, even if they
+ * match an allowed prefix. They are blocked unless API-key auth is explicitly
+ * opted into via profile `apiKeyEnvVar`/`apiKey` (handled before this set is
+ * consulted — see `buildCuratedEnv`).
+ *
+ * - `OPENAI_API_KEY` — a placeholder/ambient key would otherwise hijack an
+ *   OAuth-backed `codex login` session and force the run into API-key auth.
+ * - `OPENAI_BASE_URL` — deprecated by the Codex CLI; it causes a WebSocket
+ *   endpoint mis-derivation (`wss://.../v1/responses`) and 500 errors. The CLI
+ *   reads `openai_base_url` from `config.toml` instead.
+ *
+ * Mirrors the SDK transport's blocklist (`adapters/codex/sdk.ts`) so all three
+ * local Codex transports isolate ambient OpenAI auth env identically.
  */
-const BLOCKED_ENV_KEYS = new Set(["OPENAI_BASE_URL"]);
+const BLOCKED_ENV_KEYS = new Set(["OPENAI_API_KEY", "OPENAI_BASE_URL"]);
 
 interface CuratedEnvResult {
   env: Record<string, string>;
@@ -263,27 +272,28 @@ function buildCuratedEnv(apiKeyEnvVar: string, opts: BuildCuratedEnvOptions): Cu
   let filteredCount = 0;
   let blockedCount = 0;
   const droppedDisallowedPrefixKeys = new Set<string>();
-  // OPENAI_API_KEY may only be forwarded when API-key auth is opted into AND it
-  // is the configured key var; otherwise it is blocked to protect OAuth runs.
-  const allowOpenAiApiKey = opts.allowApiKey && apiKeyEnvVar === "OPENAI_API_KEY";
   for (const [key, value] of Object.entries(process.env)) {
     if (value == null) continue;
+    // Explicit API-key opt-in: forward the configured key var (which may be
+    // OPENAI_API_KEY) before the blocklist, so API-key auth still works when a
+    // profile requests it.
+    if (key === apiKeyEnvVar && opts.allowApiKey) {
+      env[key] = value;
+      forwardedCount += 1;
+      continue;
+    }
+    // The configured key var without an opt-in must not leak into the child.
+    if (key === apiKeyEnvVar) {
+      blockedCount += 1;
+      continue;
+    }
+    // Ambient OpenAI auth env (OPENAI_API_KEY / OPENAI_BASE_URL) is blocked by
+    // default so a placeholder key cannot hijack an OAuth-backed `codex login`.
     if (BLOCKED_ENV_KEYS.has(key)) {
       blockedCount += 1;
       continue;
     }
-    if (key === "OPENAI_API_KEY" && !allowOpenAiApiKey) {
-      blockedCount += 1;
-      continue;
-    }
-    if (key === apiKeyEnvVar && !opts.allowApiKey) {
-      blockedCount += 1;
-      continue;
-    }
-    if (
-      key === apiKeyEnvVar ||
-      ALLOWED_ENV_PREFIXES.some((prefix) => key === prefix || key.startsWith(prefix))
-    ) {
+    if (ALLOWED_ENV_PREFIXES.some((prefix) => key === prefix || key.startsWith(prefix))) {
       env[key] = value;
       forwardedCount += 1;
     } else {

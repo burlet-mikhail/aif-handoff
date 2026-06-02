@@ -887,4 +887,12 @@ export const api = {
       taskIds: string[];
     }>(`/projects/${projectId}/tasks-import`, { method: "POST" }, IMPORT_ROADMAP_TIMEOUT_MS);
   },
+
+  bulkDeleteTasks(ids: string[]): Promise<{ success: boolean; deleted: number }> {
+    console.debug("[api] POST /tasks/bulk-delete (%d ids)", ids.length);
+    return request<{ success: boolean; deleted: number }>(`${API_BASE}/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
 };

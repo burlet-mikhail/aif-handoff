@@ -45,8 +45,6 @@ interface Props {
   onOpenCommandPalette: () => void;
   density: "comfortable" | "compact";
   onDensityChange: (density: "comfortable" | "compact") => void;
-  viewMode: "kanban" | "list";
-  onViewModeChange: (mode: "kanban" | "list") => void;
   taskMetrics: TaskMetricsSummary;
   aggregateTotals?: AggregateProjectTotals | null;
   runtimeProfilesOpen: boolean;
@@ -62,8 +60,6 @@ export function Header({
   onOpenCommandPalette,
   density,
   onDensityChange,
-  viewMode,
-  onViewModeChange,
   taskMetrics,
   aggregateTotals,
   runtimeProfilesOpen,
@@ -175,26 +171,6 @@ export function Header({
           >
             <Command className="h-3.5 w-3.5" />K
           </Button>
-
-          <div className="hidden h-8 border border-border bg-card md:flex">
-            {(["kanban", "list"] as const).map((mode, i) => (
-              <Button
-                key={mode}
-                variant="ghost"
-                size="xs"
-                onClick={() => onViewModeChange(mode)}
-                className={cn(
-                  "h-full rounded-none border-0 px-2 font-mono",
-                  i > 0 && "border-l border-border",
-                  viewMode === mode
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:bg-accent",
-                )}
-              >
-                {mode.toUpperCase()}
-              </Button>
-            ))}
-          </div>
 
           <div className="hidden h-8 border border-border bg-card md:flex">
             {(["comfortable", "compact"] as const).map((d, i) => (

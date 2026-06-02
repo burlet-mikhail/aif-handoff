@@ -3996,3 +3996,23 @@ export function findPreferredCodexLimitHeadForOverlay(
   );
   return null;
 }
+
+/**
+ * Atomically delete multiple tasks (and their comments) in a single
+ * transaction. Returns the number of task rows actually removed.
+ *
+ * Unlike {@link deleteTask}, this runs inside a transaction so a partial
+ * failure rolls back fully — no orphaned comments, no half-applied batch.
+ */
+export function deleteTasks(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  log.debug("Bulk deleting %d tasks", ids.length);
+  const db = getDb();
+  const deleted = db.transaction((tx) => {
+    tx.delete(taskComments).where(inArray(taskComments.taskId, ids)).run();
+    const result = tx.delete(tasks).where(inArray(tasks.id, ids)).run();
+    return result.changes;
+  });
+  log.debug("Bulk delete complete: %d", deleted);
+  return deleted;
+}

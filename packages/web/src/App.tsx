@@ -44,10 +44,9 @@ function AppContent() {
     const saved = readStorage(STORAGE_KEYS.DENSITY);
     return saved === "compact" ? "compact" : "comfortable";
   });
-  const [viewMode, setViewMode] = useState<"kanban" | "list">(() => {
-    const saved = readStorage(STORAGE_KEYS.VIEW_MODE);
-    return saved === "list" ? "list" : "kanban";
-  });
+  // List is the only board view now. Force "list" unconditionally so an old
+  // stored "kanban" value can't strand the user (the toggle was removed).
+  const [viewMode] = useState<"kanban" | "list">("list");
   const project = useMemo(
     () => projects?.find((candidate) => candidate.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
@@ -179,8 +178,6 @@ function AppContent() {
         onOpenCommandPalette={() => setCommandOpen(true)}
         density={density}
         onDensityChange={setDensity}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
         taskMetrics={taskMetrics}
         aggregateTotals={aggregateProjectTotals}
         runtimeProfilesOpen={runtimeSettingsOpen}

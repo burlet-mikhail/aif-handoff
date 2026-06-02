@@ -10,6 +10,7 @@ import {
   createTaskCommentSchema,
   reorderTaskSchema,
   broadcastTaskSchema,
+  bulkDeleteTasksSchema,
 } from "../schemas.js";
 import { broadcast } from "../ws.js";
 import { handleTaskEvent } from "../services/taskEvents.js";
@@ -24,6 +25,7 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  deleteTasks,
   listComments,
   createComment,
   updateComment,
@@ -538,4 +540,22 @@ tasksRouter.patch("/:id/position", jsonValidator(reorderTaskSchema), async (c) =
 
   broadcast({ type: "task:updated", payload: toTaskBroadcastPayload(updated) });
   return c.json(toTaskRouteResponse(updated));
+});
+
+// POST /tasks/bulk-delete — atomically delete many tasks at once.
+// Differs from DELETE /:id by HTTP method, so registration order is irrelevant.
+tasksRouter.post("/bulk-delete", jsonValidator(bulkDeleteTasksSchema), (c) => {
+  const { ids } = c.req.valid("json");
+  log.debug({ count: ids.length }, "Bulk delete request");
+
+  const deleted = deleteTasks(ids);
+
+  // Idempotent: re-broadcasting task:deleted for an already-absent id is
+  // harmless for the client cache, so no per-id existence checks.
+  for (const id of ids) {
+    broadcast({ type: "task:deleted", payload: { id } });
+  }
+
+  log.info({ deleted }, "Tasks bulk deleted");
+  return c.json({ success: true, deleted });
 });

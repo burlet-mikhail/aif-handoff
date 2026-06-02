@@ -329,3 +329,7 @@ export const githubLogSchema = z.object({
   rootPath: z.string().min(1, "Root path is required"),
   limit: z.number().int().min(1).max(100).default(20),
 });
+
+export const bulkDeleteTasksSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(500),
+});

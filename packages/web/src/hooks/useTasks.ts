@@ -139,3 +139,16 @@ export function useSyncTaskPlan() {
     },
   });
 }
+
+export function useBulkDeleteTasks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.bulkDeleteTasks(ids),
+    onSuccess: (_data, ids) => {
+      for (const id of ids) {
+        queryClient.removeQueries({ queryKey: ["task", id] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}

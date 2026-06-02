@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ChevronUp, ChevronDown, Clock, Pause, Play } from "lucide-react";
 import { STATUS_CONFIG, type Task } from "@aif/shared/browser";
 import { TableHeaderCell } from "@/components/ui/table-header-cell";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useReorderTask, useUpdateTask } from "@/hooks/useTasks";
 
 interface TaskListTableProps {
@@ -9,6 +10,11 @@ interface TaskListTableProps {
   isCompact: boolean;
   onTaskClick: (taskId: string) => void;
   onReorderBacklog?: () => void;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleSelectAll?: () => void;
+  allSelected?: boolean;
+  someSelected?: boolean;
 }
 
 export function TaskListTable({
@@ -16,9 +22,22 @@ export function TaskListTable({
   isCompact,
   onTaskClick,
   onReorderBacklog,
+  selectedIds = new Set(),
+  onToggleSelect = () => {},
+  onToggleSelectAll = () => {},
+  allSelected = false,
+  someSelected = false,
 }: TaskListTableProps) {
   const reorder = useReorderTask();
   const updateTask = useUpdateTask();
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  // The Checkbox primitive is a raw <input>, so drive the indeterminate
+  // visual imperatively (it's not an attribute React can set declaratively).
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [someSelected, allSelected]);
   const backlogSorted = useMemo(
     () => tasks.filter((t) => t.status === "backlog").sort((a, b) => a.position - b.position),
     [tasks],
@@ -59,6 +78,16 @@ export function TaskListTable({
       <table className="w-full table-fixed border-collapse text-left">
         <thead className="border-b border-border bg-secondary/35">
           <tr>
+            <TableHeaderCell isCompact={isCompact} className="w-10 text-center">
+              <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+                <Checkbox
+                  ref={selectAllRef}
+                  checked={allSelected}
+                  onChange={onToggleSelectAll}
+                  aria-label="Select all tasks"
+                />
+              </span>
+            </TableHeaderCell>
             <TableHeaderCell isCompact={isCompact} className="w-auto">
               Task
             </TableHeaderCell>
@@ -83,9 +112,21 @@ export function TaskListTable({
           {tasks.map((task) => (
             <tr
               key={task.id}
-              className="cursor-pointer border-b border-border/80 transition-colors hover:bg-accent/45"
+              className={`cursor-pointer border-b border-border/80 transition-colors hover:bg-accent/45 ${
+                selectedIds.has(task.id) ? "bg-primary/10" : ""
+              }`}
               onClick={() => onTaskClick(task.id)}
             >
+              <td
+                className={`px-2 text-center ${isCompact ? "py-1" : "py-2.5"}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Checkbox
+                  checked={selectedIds.has(task.id)}
+                  onChange={() => onToggleSelect(task.id)}
+                  aria-label="Select task"
+                />
+              </td>
               <td className={`px-3 overflow-hidden ${isCompact ? "py-1" : "py-2.5"}`}>
                 <div
                   className={`truncate ${isCompact ? "text-xs" : "text-sm"} font-medium tracking-tight`}
@@ -200,7 +241,7 @@ export function TaskListTable({
           ))}
           {tasks.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-3 py-4 text-center text-xs text-muted-foreground">
+              <td colSpan={7} className="px-3 py-4 text-center text-xs text-muted-foreground">
                 No tasks match current list search
               </td>
             </tr>

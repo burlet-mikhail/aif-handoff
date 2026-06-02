@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { ORDERED_STATUSES, STATUS_CONFIG, type Task, type TaskStatus } from "@aif/shared/browser";
-import { useTasks } from "@/hooks/useTasks";
+import { useBulkDeleteTasks, useTasks } from "@/hooks/useTasks";
 import { Column } from "./Column";
 import { Button } from "@/components/ui/button";
 import { AddTaskForm } from "./AddTaskForm";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { STORAGE_KEYS } from "@/lib/storageKeys";
 import { FilterBar, type QuickFilter } from "./FilterBar";
@@ -45,6 +48,10 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
       ? saved
       : "updated_desc";
   });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const bulkDelete = useBulkDeleteTasks();
+  const { toast } = useToast();
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.LIST_QUERY, listQuery);
@@ -163,6 +170,57 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
     });
   }, [filteredTasks, listQuery, listSort]);
 
+  // Derive the effective selection by dropping any id no longer present in
+  // the visible list (project switch, filter change, deletion). Computed
+  // during render rather than synced via an effect, so stale ids never leak
+  // into allSelected / bulk-delete payloads.
+  const visibleSelectedIds = useMemo(() => {
+    if (selectedIds.size === 0) return selectedIds;
+    const visible = new Set(listTasks.map((t) => t.id));
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of selectedIds) {
+      if (visible.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : selectedIds;
+  }, [selectedIds, listTasks]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const allSelectedNow = listTasks.length > 0 && listTasks.every((t) => prev.has(t.id));
+      if (allSelectedNow) return new Set();
+      return new Set(listTasks.map((t) => t.id));
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const allSelected = listTasks.length > 0 && listTasks.every((t) => visibleSelectedIds.has(t.id));
+  const someSelected = visibleSelectedIds.size > 0;
+
+  const handleBulkDelete = () => {
+    const ids = [...visibleSelectedIds];
+    console.debug("[board] bulk delete %d tasks", ids.length);
+    bulkDelete.mutate(ids, {
+      onSuccess: (res) => {
+        clearSelection();
+        setShowBulkDeleteConfirm(false);
+        toast(`Deleted ${res.deleted} task${res.deleted === 1 ? "" : "s"}`, "success");
+      },
+      onError: () => toast("Failed to delete tasks", "error"),
+    });
+  };
+
   if (isLoading && viewMode === "kanban") {
     return (
       <div className="flex gap-4 overflow-x-auto pb-6">
@@ -280,6 +338,36 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
             onReorderBacklog={() => {
               if (listSort !== "status") setListSort("status");
             }}
+            selectedIds={visibleSelectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            allSelected={allSelected}
+            someSelected={someSelected}
+          />
+          <StickyActionBar visible={visibleSelectedIds.size > 0}>
+            <span className="text-sm font-medium">{visibleSelectedIds.size} selected</span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={clearSelection}>
+                Clear
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+              >
+                Delete {visibleSelectedIds.size} tasks
+              </Button>
+            </div>
+          </StickyActionBar>
+          <ConfirmDialog
+            open={showBulkDeleteConfirm}
+            onOpenChange={setShowBulkDeleteConfirm}
+            variant="destructive"
+            title="Delete tasks"
+            description={`Delete ${visibleSelectedIds.size} tasks? This action cannot be undone.`}
+            confirmLabel="Delete"
+            disabled={bulkDelete.isPending}
+            onConfirm={handleBulkDelete}
           />
         </div>
       )}

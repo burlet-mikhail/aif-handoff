@@ -132,8 +132,6 @@ function renderHeader() {
       onOpenCommandPalette={vi.fn()}
       density="comfortable"
       onDensityChange={vi.fn()}
-      viewMode="kanban"
-      onViewModeChange={vi.fn()}
       taskMetrics={metrics}
       aggregateTotals={null}
       runtimeProfilesOpen={false}

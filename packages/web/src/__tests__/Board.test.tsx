@@ -98,16 +98,22 @@ vi.mock("@/hooks/useTasks", () => ({
   useTask: () => ({ data: null }),
   useUpdateTask: () => ({ mutate: vi.fn() }),
   useDeleteTask: () => ({ mutate: vi.fn() }),
+  useBulkDeleteTasks: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateTask: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 const { Board } = await import("@/components/kanban/Board");
+const { ToastProvider } = await import("@/components/ui/toast");
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={qc}>
+      <ToastProvider>{children}</ToastProvider>
+    </QueryClientProvider>
+  );
 }
 
 describe("Board", () => {

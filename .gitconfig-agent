@@ -1,0 +1,9 @@
+[safe]
+    directory = *
+[credential]
+    helper = !gh auth git-credential
+[user]
+    name = mikhail
+    email = xbios@proton.me
+[core]
+    sshCommand = ssh -i /home/node/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null

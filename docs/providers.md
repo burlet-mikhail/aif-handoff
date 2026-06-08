@@ -284,6 +284,8 @@ Invalid `options.approvalPolicy` / `options.sandboxMode` values are ignored with
 }
 ```
 
+> **Auth (local Codex transports — SDK / CLI / App Server).** These default to local `codex login` / OAuth. They do **not** implicitly consume an ambient `OPENAI_API_KEY` or `OPENAI_BASE_URL`, so a placeholder key in `.env` cannot hijack an OAuth-backed session. The `apiKeyEnvVar` in the example above is the explicit opt-in: set it (or `options.apiKey`) only when you want the local transport to authenticate with an API key. Omit it to use OAuth. For a custom local endpoint, set the profile `baseUrl` or `CODEX_BASE_URL` (`OPENAI_BASE_URL` is ignored for local transports). The **API transport** is unchanged and still uses `OPENAI_API_KEY` + `OPENAI_BASE_URL`.
+
 **`codexCliArgs` is a full escape hatch.** When `options.codexCliArgs` is set, the adapter uses the custom template verbatim (with `{prompt}`, `{model}`, `{session_id}` substitutions) and **skips all adapter-managed flags** — including `--model`, `-c model_reasoning_effort`, `-c approval_policy`, `-c sandbox_mode`, `--skip-git-repo-check`, and the bypass-permission translation. If you use a custom template you are responsible for emitting these flags yourself. Profile-level `options.approvalPolicy`, `options.sandboxMode`, `options.skipGitRepoCheck`, `options.modelReasoningEffort`, and `AGENT_BYPASS_PERMISSIONS` all have **no effect** when a custom template is active. Use this only for integration with non-standard CLI wrappers.
 
 ### Codex (App Server transport)

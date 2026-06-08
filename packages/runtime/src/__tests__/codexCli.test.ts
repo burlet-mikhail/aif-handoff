@@ -319,6 +319,60 @@ describe("codex cli transport", () => {
     expect(result.events?.[0]?.type).toBe("stream:text");
   });
 
+  it("does not forward ambient OPENAI_API_KEY / OPENAI_BASE_URL by default", async () => {
+    const child = createMockChildProcess();
+    spawnMock.mockReturnValueOnce(child);
+
+    vi.stubEnv("OPENAI_API_KEY", "sk-000");
+    vi.stubEnv("OPENAI_BASE_URL", "http://host.docker.internal:8317/v1");
+
+    const runPromise = runCodexCli(createRunInput({ options: {} }));
+
+    const { spawnOptions } = getSpawnInvocation() as {
+      spawnOptions: { env?: Record<string, string> };
+    };
+    expect(spawnOptions.env?.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnOptions.env?.OPENAI_BASE_URL).toBeUndefined();
+
+    child.emit("close", 0);
+    await runPromise;
+  });
+
+  it("forwards OPENAI_API_KEY when apiKeyEnvVar is explicitly configured", async () => {
+    const child = createMockChildProcess();
+    spawnMock.mockReturnValueOnce(child);
+
+    vi.stubEnv("OPENAI_API_KEY", "sk-real");
+
+    const runPromise = runCodexCli(createRunInput({ options: { apiKeyEnvVar: "OPENAI_API_KEY" } }));
+
+    const { spawnOptions } = getSpawnInvocation() as {
+      spawnOptions: { env?: Record<string, string> };
+    };
+    expect(spawnOptions.env?.OPENAI_API_KEY).toBe("sk-real");
+
+    child.emit("close", 0);
+    await runPromise;
+  });
+
+  it("injects an explicitly configured literal apiKey into the CLI env", async () => {
+    const child = createMockChildProcess();
+    spawnMock.mockReturnValueOnce(child);
+
+    const runPromise = runCodexCli(
+      createRunInput({ options: { apiKey: "sk-literal", apiKeyEnvVar: "MY_CODEX_KEY" } }),
+    );
+
+    const { spawnOptions } = getSpawnInvocation() as {
+      spawnOptions: { env?: Record<string, string> };
+    };
+    expect(spawnOptions.env?.MY_CODEX_KEY).toBe("sk-literal");
+    expect(spawnOptions.env?.OPENAI_API_KEY).toBe("sk-literal");
+
+    child.emit("close", 0);
+    await runPromise;
+  });
+
   it("expands multiple placeholders within one custom arg and suppresses stdin", async () => {
     const child = createMockChildProcess();
     spawnMock.mockReturnValueOnce(child);
@@ -554,7 +608,9 @@ describe("codex cli transport", () => {
     vi.stubEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
     vi.stubEnv("npm_config_registry", "https://registry.npmjs.org");
 
-    const runPromise = runCodexCli(createRunInput());
+    // Explicit API-key opt-in so OPENAI_API_KEY forwards; this test asserts that
+    // OPENAI_BASE_URL is still stripped regardless of the key being present.
+    const runPromise = runCodexCli(createRunInput({ options: { apiKeyEnvVar: "OPENAI_API_KEY" } }));
 
     const [, , spawnOptions] = spawnMock.mock.calls[0] as [
       string,

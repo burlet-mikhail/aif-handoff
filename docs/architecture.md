@@ -176,6 +176,21 @@ Auto-review strategy is controlled globally by `AGENT_AUTO_REVIEW_STRATEGY`:
 
 Tasks also have a `skipReview` flag (default `false`). When `true`, the coordinator bypasses the review stage entirely — after successful implementation the task moves directly to `done`, skipping the `review-sidecar` and `security-sidecar` runs. This is useful for small changes or tasks where code review is unnecessary.
 
+### QA Pipeline
+
+Tasks carry a separate QA workflow that runs the `/aif-qa --all` pipeline (change-summary → test-plan → test-cases). It is driven by the API service `packages/api/src/services/qaRunner.ts` (modeled on `commitGeneration.ts` — fire-and-forget, returns a structured `{ ok, error }` result and never throws), which executes the prompt through `runApiRuntimeOneShot` and writes three markdown artifacts to `<paths.qa>/<branch-slug>/` (`change-summary.md`, `test-plan.md`, `test-cases.md`). The artifacts are persisted onto the task (`qaChangeSummary`, `qaTestPlan`, `qaTestCases`) and surfaced in the **QA** tab of the task detail view.
+
+The branch-slug is computed deterministically (`<safe-slug>-<git-hash-object-prefix>`) as a hard contract with `.claude/skills/aif-qa/SKILL.md`, so the runner reads from the same directory the skill writes to. QA runs in the task's worktree root (`worktreePath`) when present, otherwise the project root.
+
+Two trigger paths exist:
+
+- **Manual** — `POST /tasks/:id/run-qa` (available in the UI once the task reaches `done` or `verified`).
+- **Automatic** — the `autoQa` flag (default `false`). When `true`, the QA pipeline starts after `approve_done` (`done → verified`).
+
+Progress is reported via `qaStatus` (`idle` → `running` → `done`/`error`) and the `task:qa_started` / `task:qa_done` / `task:qa_failed` WebSocket events.
+
+Concurrent starts are serialized by an atomic DB claim (`tryStartQaRun` — a conditional `UPDATE` to `running`), so a duplicate manual POST or a manual+auto race never spawns two runtime runs. Every failure path releases the claim with a terminal `qaStatus: "error"`, and on API startup any task left in `running` (e.g. a crash or restart mid-run) is reset to `error` (`resetStaleQaRuns`) so a stuck claim can never block future QA starts.
+
 ### Pause / Resume
 
 Tasks have a `paused` flag (default `false`). When `true`, the coordinator skips the task in all selection queries:
@@ -282,6 +297,9 @@ The API broadcasts events via WebSocket (`/ws` endpoint) on every state change:
 | `task:updated`                  | Task fields updated                                 |
 | `task:moved`                    | Task status changed via state machine               |
 | `task:deleted`                  | Task deleted                                        |
+| `task:qa_started`               | QA pipeline started (manual run-qa or auto-trigger) |
+| `task:qa_done`                  | QA pipeline finished successfully                   |
+| `task:qa_failed`                | QA pipeline failed                                  |
 | `agent:wake`                    | Coordinator should check for work                   |
 | `project:runtime_limit_updated` | Runtime-profile limit snapshot persisted or cleared |
 

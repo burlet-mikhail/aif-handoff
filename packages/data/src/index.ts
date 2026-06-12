@@ -130,6 +130,11 @@ export type TaskFieldsUpdate = {
   planTests?: boolean;
   skipReview?: boolean;
   useSubagents?: boolean;
+  autoQa?: boolean;
+  qaChangeSummary?: string | null;
+  qaTestPlan?: string | null;
+  qaTestCases?: string | null;
+  qaStatus?: "idle" | "running" | "done" | "error";
   implementationLog?: string | null;
   reviewComments?: string | null;
   agentActivityLog?: string | null;
@@ -787,6 +792,7 @@ export function createTask(input: {
   planTests?: boolean;
   skipReview?: boolean;
   useSubagents?: boolean;
+  autoQa?: boolean;
   maxReviewIterations?: number;
   paused?: boolean;
   runtimeProfileId?: string | null;
@@ -834,6 +840,7 @@ export function createTask(input: {
       planTests: input.planTests,
       skipReview: input.skipReview,
       useSubagents: input.useSubagents,
+      autoQa: input.autoQa,
       maxReviewIterations: input.maxReviewIterations,
       paused: input.paused,
       runtimeProfileId: input.runtimeProfileId ?? null,
@@ -891,6 +898,39 @@ export function updateTask(id: string, fields: TaskFieldsUpdate): TaskRow | unde
   }
   getDb().update(tasks).set(patch).where(eq(tasks.id, id)).run();
   return findTaskById(id);
+}
+
+/**
+ * Atomically claim the QA "running" slot for a task. Performs a conditional
+ * UPDATE — `SET qa_status='running' WHERE id=? AND qa_status!='running'` — and
+ * returns true only when THIS call flipped the row (it won the transition and
+ * owns the run). Returns false when QA was already running, so concurrent
+ * manual + auto-trigger / double-POST starts are mutually exclusive at the DB
+ * and never spawn two runtime runs. Bumps `updatedAt` to mirror updateTask.
+ */
+export function tryStartQaRun(id: string): boolean {
+  const result = getDb()
+    .update(tasks)
+    .set({ qaStatus: "running", updatedAt: new Date().toISOString() })
+    .where(and(eq(tasks.id, id), ne(tasks.qaStatus, "running")))
+    .run();
+  return result.changes > 0;
+}
+
+/**
+ * Recover tasks orphaned in qaStatus:"running" — a crash/restart mid-run or a
+ * dispatch failure that never finalized leaves the row in "running", and since
+ * `tryStartQaRun` only wins when qa_status != 'running', such a task could
+ * never start QA again. Called once at API startup; flips every "running" row
+ * to the terminal "error" status and returns how many rows were recovered.
+ */
+export function resetStaleQaRuns(): number {
+  const result = getDb()
+    .update(tasks)
+    .set({ qaStatus: "error", updatedAt: new Date().toISOString() })
+    .where(eq(tasks.qaStatus, "running"))
+    .run();
+  return result.changes;
 }
 
 /**

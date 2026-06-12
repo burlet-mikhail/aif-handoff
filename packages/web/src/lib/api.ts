@@ -55,6 +55,7 @@ export interface AifConfig {
     evolution?: string;
     specs?: string;
     rules?: string;
+    qa?: string;
   };
   workflow?: {
     auto_create_dirs?: boolean;
@@ -99,6 +100,7 @@ export interface SettingsResponse {
   autoReviewStrategy: "full_re_review" | "closure_first";
   usageLimitsEnabled: boolean;
   warmupEnabled: boolean;
+  qaPipelineEnabled?: boolean;
   runtimeReadiness: {
     availableRuntimeCount: number;
     runtimeProfileCount: number;
@@ -433,6 +435,10 @@ export const api = {
   getTaskPlanFileStatus(id: string): Promise<{ exists: boolean; path: string }> {
     console.debug("[api] GET /tasks/%s/plan-file-status", id);
     return request<{ exists: boolean; path: string }>(`${API_BASE}/${id}/plan-file-status`);
+  },
+
+  async runQa(id: string): Promise<void> {
+    await request<void>(`${API_BASE}/${id}/run-qa`, { method: "POST" });
   },
 
   checkRoadmapStatus(projectId: string): Promise<{ exists: boolean }> {

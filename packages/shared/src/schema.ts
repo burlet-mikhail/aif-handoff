@@ -66,6 +66,14 @@ export const tasks = sqliteTable("tasks", {
   planTests: integer("plan_tests", { mode: "boolean" }).notNull().default(false),
   skipReview: integer("skip_review", { mode: "boolean" }).notNull().default(false),
   useSubagents: integer("use_subagents", { mode: "boolean" }).notNull().default(false),
+  autoQa: integer("auto_qa", { mode: "boolean" }).notNull().default(false),
+  qaChangeSummary: text("qa_change_summary"),
+  qaTestPlan: text("qa_test_plan"),
+  qaTestCases: text("qa_test_cases"),
+  qaStatus: text("qa_status")
+    .$type<"idle" | "running" | "done" | "error">()
+    .notNull()
+    .default("idle"),
   status: text("status").$type<TaskStatus>().notNull().default("backlog"),
   priority: integer("priority").notNull().default(0),
   position: real("position").notNull().default(1000.0),

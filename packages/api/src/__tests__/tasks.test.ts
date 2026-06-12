@@ -460,6 +460,37 @@ describe("tasks API", () => {
       expect(body.useSubagents).toBe(false);
     });
 
+    it("should persist autoQa from create payload", async () => {
+      const res = await app.request("/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Task with auto QA",
+          projectId: "test-project",
+          autoQa: true,
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.autoQa).toBe(true);
+    });
+
+    it("should default autoQa to false when omitted on create", async () => {
+      const res = await app.request("/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Task without auto QA",
+          projectId: "test-project",
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.autoQa).toBe(false);
+    });
+
     it("should default useSubagents to AGENT_USE_SUBAGENTS env value", async () => {
       const { getEnv } = await import("@aif/shared");
       const envDefault = getEnv().AGENT_USE_SUBAGENTS;

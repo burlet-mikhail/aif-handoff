@@ -114,6 +114,11 @@ export interface Task {
   planTests: boolean;
   skipReview: boolean;
   useSubagents: boolean;
+  autoQa: boolean;
+  qaChangeSummary: string | null;
+  qaTestPlan: string | null;
+  qaTestCases: string | null;
+  qaStatus: "idle" | "running" | "done" | "error";
   status: TaskStatus;
   priority: number;
   position: number;
@@ -197,6 +202,7 @@ export interface CreateTaskInput {
   planTests?: boolean;
   skipReview?: boolean;
   useSubagents?: boolean;
+  autoQa?: boolean;
   maxReviewIterations?: number;
   paused?: boolean;
   runtimeProfileId?: string | null;
@@ -221,6 +227,11 @@ export interface UpdateTaskInput {
   planTests?: boolean;
   skipReview?: boolean;
   useSubagents?: boolean;
+  autoQa?: boolean;
+  qaChangeSummary?: string | null;
+  qaTestPlan?: string | null;
+  qaTestCases?: string | null;
+  qaStatus?: "idle" | "running" | "done" | "error";
   plan?: string | null;
   implementationLog?: string | null;
   reviewComments?: string | null;
@@ -300,7 +311,10 @@ export type WsEventType =
   | "project:warmup_updated"
   | "task:commit_started"
   | "task:commit_done"
-  | "task:commit_failed";
+  | "task:commit_failed"
+  | "task:qa_started"
+  | "task:qa_done"
+  | "task:qa_failed";
 
 export interface RoadmapCompletePayload {
   projectId: string;
@@ -324,6 +338,17 @@ export interface RoadmapErrorPayload {
  * `status` is redundant with `type` but makes the payload self-describing.
  */
 export interface TaskCommitPayload {
+  taskId: string;
+  projectId: string;
+  status: "started" | "done" | "failed";
+  error?: string;
+}
+
+/**
+ * Lifecycle of `/aif-qa` runs (manual via `POST /tasks/:id/run-qa` or
+ * auto-triggered on `approve_done` when `task.autoQa = true`).
+ */
+export interface TaskQaPayload {
   taskId: string;
   projectId: string;
   status: "started" | "done" | "failed";
@@ -354,6 +379,7 @@ export interface WsEvent {
     | ChatErrorPayload
     | ChatSession
     | TaskCommitPayload
+    | TaskQaPayload
     | RuntimeLimitBroadcastPayload
     | WarmupBroadcastPayload;
 }

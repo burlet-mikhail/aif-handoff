@@ -596,6 +596,7 @@ POST /tasks
 | `skipReview` | boolean | no | `false` | Skip the review stage — task moves directly from implementing to done |
 | `paused` | boolean | no | `false` | Pause agent processing — coordinator skips this task until resumed |
 | `useSubagents` | boolean | no | `false` | Run via custom subagents (`plan-coordinator`, `implement-coordinator`, sidecars). `false` uses `aif-*` skills directly |
+| `autoQa` | boolean | no | `false` | Automatically run the QA pipeline (`/aif-qa --all`) when the task is approved (`approve_done`: `done → verified`) |
 | `runtimeProfileId` | string \| null | no | `null` | Task-specific runtime override. When absent, resolution falls back to project default, then app default, then environment fallback |
 | `roadmapAlias` | string | no | `null` | Roadmap alias for grouping (e.g., `v1.0`) |
 | `tags` | string[] | no | `[]` | Tags for filtering/categorization (max 50, each max 100 chars) |
@@ -629,6 +630,11 @@ Notable task fields in the response:
 | `autoReviewState`       | object\|null | Latest persisted blocking-findings snapshot used by the auto-review loop (`strategy`, `iteration`, `findings[]`) |
 | `runtimeLimitSnapshot`  | object\|null | Persisted runtime-limit snapshot copied onto the task when quota gating or quota failure blocks execution        |
 | `runtimeLimitUpdatedAt` | string\|null | ISO timestamp for the last task-level runtime-limit snapshot write                                               |
+| `autoQa`                | boolean      | When `true`, the QA pipeline runs automatically once the task is approved (`approve_done`)                       |
+| `qaStatus`              | string       | QA run lifecycle: `idle`, `running`, `done`, or `error`                                                          |
+| `qaChangeSummary`       | string\|null | Markdown change-summary artifact from the latest QA run (`null` until generated)                                 |
+| `qaTestPlan`            | string\|null | Markdown test-plan artifact from the latest QA run (`null` until generated)                                      |
+| `qaTestCases`           | string\|null | Markdown test-cases artifact from the latest QA run (`null` until generated)                                     |
 
 ### Download Task Attachment
 
@@ -672,6 +678,7 @@ PUT /tasks/:id
 | `attachments` | array | File attachments |
 | `priority` | integer | Priority (0-5) |
 | `autoMode` | boolean | Auto-advance mode (includes automatic post-review rework loop when enabled) |
+| `autoQa` | boolean | Auto-run the QA pipeline when the task is approved (`done → verified`) |
 | `paused` | boolean | Pause/resume agent processing for this task |
 | `runtimeProfileId` | string\|null | Task-specific runtime override |
 | `isFix` | boolean | Marks task as fix-flow |
@@ -742,6 +749,38 @@ Additional constraints:
 **Error:** `409 Conflict` if the event is not valid for the current status.
 
 **WebSocket event:** `task:moved`
+
+### Run QA
+
+```
+POST /tasks/:id/run-qa
+```
+
+Manually triggers the `/aif-qa --all` pipeline for the task (fire-and-forget). The
+runner generates three markdown artifacts under `<paths.qa>/<branch-slug>/`
+(`change-summary.md`, `test-plan.md`, `test-cases.md`), persists them onto the task
+(`qaChangeSummary`, `qaTestPlan`, `qaTestCases`), and updates `qaStatus`. Execution
+uses the task's worktree root when present (`worktreePath`), otherwise the project
+root. Artifact slugs use the task's persisted `branchName` when present; branchless
+tasks fall back to the current git branch in the execution root. The same pipeline
+runs automatically after `approve_done` when `autoQa = true`.
+
+**Response:** `202 Accepted`
+
+```json
+{ "status": "accepted" }
+```
+
+**Errors:**
+
+- `403` — QA pipeline feature flag is disabled (`AIF_QA_PIPELINE_ENABLED=false`); body carries `code: "feature_disabled"`
+- `404` — task not found
+- `404` — project not found
+- `409` — QA is already running (`qaStatus === "running"`)
+
+**WebSocket events:** `task:qa_started` immediately, then `task:qa_done` or
+`task:qa_failed` when the run finishes. The runner also broadcasts `task:updated`
+as it writes `qaStatus` and the artifacts.
 
 ### Reorder Task
 
@@ -1124,6 +1163,9 @@ All events are JSON with this structure:
 | `task:updated`                    | Full task object                                                                                   | `PUT /tasks/:id`, `PATCH /tasks/:id/position`, `POST /tasks/:id/events` (`fast_fix`) |
 | `task:moved`                      | Full task object                                                                                   | `POST /tasks/:id/events`                                                             |
 | `task:deleted`                    | `{ id: string }`                                                                                   | `DELETE /tasks/:id`                                                                  |
+| `task:qa_started`                 | `{ taskId, projectId, status: "started" }`                                                         | `POST /tasks/:id/run-qa`, or `approve_done` with `autoQa=true`                       |
+| `task:qa_done`                    | `{ taskId, projectId, status: "done" }`                                                            | QA pipeline finished successfully                                                    |
+| `task:qa_failed`                  | `{ taskId, projectId, status: "failed", error? }`                                                  | QA pipeline failed (runner returned `{ ok: false }`)                                 |
 | `sync:task_created`               | Full task object                                                                                   | MCP `handoff_create_task`                                                            |
 | `sync:task_updated`               | Full task object                                                                                   | MCP `handoff_update_task`, `handoff_push_plan`                                       |
 | `sync:status_changed`             | Full task object                                                                                   | MCP `handoff_sync_status`                                                            |

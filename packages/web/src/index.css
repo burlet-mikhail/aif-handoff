@@ -210,6 +210,12 @@ a {
 }
 
 /* Custom scrollbar */
+/* Firefox: ::-webkit-scrollbar is ignored, so style via standard properties.
+   Inherits to every scroll container, mirroring the WebKit rules below. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

@@ -22,6 +22,8 @@ vi.mock("@aif/shared/server", async (importOriginal) => {
 const {
   createTask,
   updateTask,
+  tryStartQaRun,
+  resetStaleQaRuns,
   setTaskFields,
   deleteTask,
   findTaskById,
@@ -205,6 +207,60 @@ describe("data layer", () => {
       expect(updated).toBeDefined();
       const resp = toTaskResponse(updated!);
       expect(resp.tags).toEqual(["a", "b"]);
+    });
+  });
+
+  describe("tryStartQaRun", () => {
+    it("claims the running slot from a non-running status and returns true", () => {
+      const t = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(tryStartQaRun(t!.id)).toBe(true);
+      expect(findTaskById(t!.id)!.qaStatus).toBe("running");
+    });
+
+    it("is mutually exclusive: a second claim while running returns false", () => {
+      const t = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(tryStartQaRun(t!.id)).toBe(true);
+      // Already running — the compare-and-set affects no rows.
+      expect(tryStartQaRun(t!.id)).toBe(false);
+      expect(findTaskById(t!.id)!.qaStatus).toBe("running");
+    });
+
+    it("can re-claim after the run finishes (status back to done/error)", () => {
+      const t = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(tryStartQaRun(t!.id)).toBe(true);
+      updateTask(t!.id, { qaStatus: "done" });
+      expect(tryStartQaRun(t!.id)).toBe(true);
+    });
+
+    it("returns false for an unknown task id (no row to flip)", () => {
+      expect(tryStartQaRun("ghost")).toBe(false);
+    });
+  });
+
+  describe("resetStaleQaRuns", () => {
+    it("flips every running row to error and returns the count", () => {
+      const a = createTask({ projectId: "proj-1", title: "A", description: "D" });
+      const b = createTask({ projectId: "proj-1", title: "B", description: "D" });
+      expect(tryStartQaRun(a!.id)).toBe(true);
+      expect(tryStartQaRun(b!.id)).toBe(true);
+      expect(resetStaleQaRuns()).toBe(2);
+      expect(findTaskById(a!.id)!.qaStatus).toBe("error");
+      expect(findTaskById(b!.id)!.qaStatus).toBe("error");
+    });
+
+    it("leaves non-running statuses untouched and returns 0 when nothing is stale", () => {
+      const t = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      updateTask(t!.id, { qaStatus: "done" });
+      expect(resetStaleQaRuns()).toBe(0);
+      expect(findTaskById(t!.id)!.qaStatus).toBe("done");
+    });
+
+    it("unblocks the QA claim: the recovered task can start QA again", () => {
+      const t = createTask({ projectId: "proj-1", title: "T", description: "D" });
+      expect(tryStartQaRun(t!.id)).toBe(true);
+      resetStaleQaRuns();
+      // Stale "running" released — the compare-and-set can win again.
+      expect(tryStartQaRun(t!.id)).toBe(true);
     });
   });
 

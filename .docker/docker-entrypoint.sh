@@ -10,7 +10,7 @@
 if [ "$(id -u)" = "0" ]; then
   # Create directories with correct ownership
   install -d -o node -g node /data /home/node/.claude /home/node/.codex 2>/dev/null || true
-  chown -R node:node /data /home/node/.claude /home/node/.codex 2>/dev/null || true
+  chown -R node:node /data /home/node/.claude /home/node/.codex /home/node/.npm 2>/dev/null || true
 
   # Persist ~/.claude.json on the same volume as ~/.claude/ so it survives
   # container restarts.  The Claude CLI stores session auth inside ~/.claude/

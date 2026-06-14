@@ -70,6 +70,7 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     AIF_USAGE_LIMITS_ENABLED: false,
     AIF_STAGE_RUNTIME_PIN_ENABLED: false,
     AIF_WARMUP_ENABLED: false,
+    AIF_QA_PIPELINE_ENABLED: false,
     AIF_RUNTIME_CODEX_NATIVE_SUBAGENTS_ENABLED: false,
     AIF_TASK_WORKTREES_ENABLED: false,
     AIF_RUNTIME_SESSION_FORK_ENABLED: false,

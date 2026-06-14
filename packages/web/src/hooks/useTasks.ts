@@ -152,3 +152,13 @@ export function useBulkDeleteTasks() {
     },
   });
 }
+
+export function useRunQa(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.runQa(taskId),
+    // WS delivers task:updated; explicit invalidation as a fallback for the
+    // manual POST path (auto-trigger relies on the WS handler instead).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["task", taskId] }),
+  });
+}

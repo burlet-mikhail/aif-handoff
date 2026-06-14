@@ -160,6 +160,21 @@ export function useWebSocket() {
         return;
       }
 
+      // QA lifecycle (manual run-qa + auto-trigger on approve_done): surface to
+      // listeners and invalidate the task query so the QA tab refetches the
+      // updated qaStatus/artifacts (the auto-trigger path has no useRunQa hook).
+      if (
+        raw.type === "task:qa_started" ||
+        raw.type === "task:qa_done" ||
+        raw.type === "task:qa_failed"
+      ) {
+        window.dispatchEvent(new CustomEvent(raw.type, { detail: raw.payload }));
+        if (isRecord(raw.payload) && typeof raw.payload.taskId === "string") {
+          queryClient.invalidateQueries({ queryKey: ["task", raw.payload.taskId] });
+        }
+        return;
+      }
+
       const data = raw as unknown as WsEvent;
 
       if (data.type === "task:moved" && isTaskPayload(data.payload)) {

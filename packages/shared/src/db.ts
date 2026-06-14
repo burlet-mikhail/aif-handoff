@@ -84,6 +84,11 @@ function ensureTables(sqlite: Database.Database): void {
       plan_tests INTEGER NOT NULL DEFAULT 0,
       skip_review INTEGER NOT NULL DEFAULT 0,
       use_subagents INTEGER NOT NULL DEFAULT 0,
+      auto_qa INTEGER NOT NULL DEFAULT 0,
+      qa_change_summary TEXT,
+      qa_test_plan TEXT,
+      qa_test_cases TEXT,
+      qa_status TEXT NOT NULL DEFAULT 'idle',
       status TEXT NOT NULL DEFAULT 'backlog',
       priority INTEGER NOT NULL DEFAULT 0,
       position REAL NOT NULL DEFAULT 1000.0,
@@ -704,6 +709,17 @@ const MIGRATIONS: Migration[] = [
     sql: `
       ALTER TABLE tasks ADD COLUMN active_runtime_status TEXT;
       ALTER TABLE tasks ADD COLUMN active_runtime_selection_json TEXT;
+    `,
+  },
+  {
+    version: 23,
+    description: "Add QA fields to tasks (autoQa toggle, three QA artifacts, qaStatus)",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN auto_qa INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE tasks ADD COLUMN qa_change_summary TEXT;
+      ALTER TABLE tasks ADD COLUMN qa_test_plan TEXT;
+      ALTER TABLE tasks ADD COLUMN qa_test_cases TEXT;
+      ALTER TABLE tasks ADD COLUMN qa_status TEXT NOT NULL DEFAULT 'idle';
     `,
   },
 ];

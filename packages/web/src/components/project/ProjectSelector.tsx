@@ -249,7 +249,8 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect }: Props) {
           onClick={() => setDropdownOpen(!dropdownOpen)}
         >
           <FolderOpen className="h-4 w-4" />
-          {selected?.name ?? "Select project"}
+          <span className="sm:hidden">{selected ? selected.name.slice(0, 3) : "···"}</span>
+          <span className="hidden sm:inline">{selected?.name ?? "Select project"}</span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
 

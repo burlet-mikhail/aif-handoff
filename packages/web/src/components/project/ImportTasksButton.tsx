@@ -36,6 +36,11 @@ export function ImportTasksButton({ projectId }: Props) {
   const tooltipText = disabledReason({ projectId, available, statusLoaded });
   const isDisabled = !projectId || status.isLoading || available === false || mutation.isPending;
 
+  // Hide the button entirely when there is nothing to import (no project, or no
+  // importable .md files under tasks/). It reappears automatically once the
+  // import status reports available files — e.g. after a git pull invalidates it.
+  if (!projectId || available !== true) return null;
+
   const handleConfirm = () => {
     if (!projectId) return;
     mutation.mutate(projectId, {

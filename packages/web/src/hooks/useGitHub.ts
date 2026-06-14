@@ -17,8 +17,17 @@ export function useCloneRepo() {
 }
 
 export function useGitPull() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (rootPath: string) => api.gitPull(rootPath),
+    onSuccess: (_, rootPath) => {
+      // A pull can bring in new task files / change the tree — refresh the
+      // import-status (drives the Import Tasks button visibility) and git state
+      // so the UI reflects the new state without a manual page reload.
+      qc.invalidateQueries({ queryKey: ["tasks-import-status"] });
+      qc.invalidateQueries({ queryKey: ["git-status", rootPath] });
+      qc.invalidateQueries({ queryKey: ["git-log", rootPath] });
+    },
   });
 }
 

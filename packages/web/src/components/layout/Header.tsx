@@ -217,7 +217,7 @@ export function Header({
             size="sm"
             onClick={() => setRoadmapOpen((v) => !v)}
             disabled={!selectedProject}
-            className="gap-1 font-mono text-3xs"
+            className="hidden gap-1 font-mono text-3xs sm:inline-flex"
             aria-label="Generate roadmap tasks"
           >
             <Map className="h-3.5 w-3.5" />
@@ -228,7 +228,7 @@ export function Header({
               variant="outline"
               size="sm"
               onClick={() => setWarmupOpen((v) => !v)}
-              className="gap-1 font-mono text-3xs"
+              className="hidden gap-1 font-mono text-3xs sm:inline-flex"
               aria-label="Runtime warmup"
               title="Runtime warmup"
             >
@@ -240,7 +240,7 @@ export function Header({
             variant="outline"
             size="sm"
             onClick={() => setMetricsOpen((v) => !v)}
-            className="gap-1 font-mono text-3xs"
+            className="hidden gap-1 font-mono text-3xs sm:inline-flex"
             aria-label="Task metrics"
           >
             <ChartColumn className="h-3.5 w-3.5" />
@@ -266,7 +266,7 @@ export function Header({
             onClick={onToggleRuntimeProfiles}
             disabled={!selectedProject}
             className={cn(
-              "gap-1 font-mono text-3xs",
+              "hidden gap-1 font-mono text-3xs sm:inline-flex",
               runtimeProfilesOpen && "border-primary/70 bg-primary/10",
             )}
             aria-label="Runtime profiles"
@@ -288,7 +288,7 @@ export function Header({
             variant="outline"
             size="icon"
             onClick={() => setSettingsOpen((v) => !v)}
-            className="h-7 w-7 sm:h-8 sm:w-8"
+            className="hidden h-7 w-7 sm:inline-flex sm:h-8 sm:w-8"
             aria-label="Notification settings"
           >
             <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />

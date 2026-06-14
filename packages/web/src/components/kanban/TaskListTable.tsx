@@ -132,13 +132,13 @@ export function TaskListTable({
               </td>
               <td className={`px-3 overflow-hidden ${isCompact ? "py-1" : "py-2.5"}`}>
                 <div
-                  className={`truncate ${isCompact ? "text-xs" : "text-sm"} font-medium tracking-tight`}
+                  className={`wrap-break-word ${isCompact ? "text-xs" : "text-sm"} font-medium tracking-tight sm:truncate`}
                 >
                   {task.title}
                 </div>
                 {task.description && (
                   <div
-                    className={`truncate text-muted-foreground ${isCompact ? "text-2xs" : "text-xs"}`}
+                    className={`hidden truncate text-muted-foreground sm:block ${isCompact ? "text-2xs" : "text-xs"}`}
                   >
                     {task.description}
                   </div>

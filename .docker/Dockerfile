@@ -53,11 +53,20 @@ RUN npx turbo build
 # ---- API ----
 FROM base AS api
 ENV NODE_ENV=production HOME=/home/node
+# Test toolchain versions (PHP via sury.org, Go via go.dev tarball). Override at
+# build time with --build-arg PHP_VERSION=... / GO_VERSION=...
+ARG PHP_VERSION=8.4
+ARG GO_VERSION=1.24.4
 RUN apt-install gosu git curl ca-certificates openssh-client \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-install gh \
     && npm i -g @anthropic-ai/claude-code @openai/codex
+# PHP + Go so subagents/fastFix can run tests for user projects in /home/www.
+COPY .docker/install-test-toolchains.sh /usr/local/bin/install-test-toolchains
+RUN chmod +x /usr/local/bin/install-test-toolchains \
+    && PHP_VERSION="${PHP_VERSION}" GO_VERSION="${GO_VERSION}" install-test-toolchains
+ENV PATH="/usr/local/go/bin:/home/node/go/bin:${PATH}"
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/packages/shared ./packages/shared
 COPY --chown=node:node --from=build /app/packages/data ./packages/data
@@ -94,11 +103,20 @@ EXPOSE 80 443
 # ---- Agent ----
 FROM base AS agent
 ENV NODE_ENV=production HOME=/home/node
+# Test toolchain versions (PHP via sury.org, Go via go.dev tarball). Override at
+# build time with --build-arg PHP_VERSION=... / GO_VERSION=...
+ARG PHP_VERSION=8.4
+ARG GO_VERSION=1.24.4
 RUN apt-install gosu git curl ca-certificates openssh-client \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-install gh \
     && npm i -g @anthropic-ai/claude-code @openai/codex
+# PHP + Go so subagents can run tests for user projects in /home/www.
+COPY .docker/install-test-toolchains.sh /usr/local/bin/install-test-toolchains
+RUN chmod +x /usr/local/bin/install-test-toolchains \
+    && PHP_VERSION="${PHP_VERSION}" GO_VERSION="${GO_VERSION}" install-test-toolchains
+ENV PATH="/usr/local/go/bin:/home/node/go/bin:${PATH}"
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/packages/shared ./packages/shared
 COPY --chown=node:node --from=build /app/packages/data ./packages/data

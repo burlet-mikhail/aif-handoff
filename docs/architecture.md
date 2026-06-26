@@ -224,6 +224,12 @@ Projects expose an `autoQueueMode` flag (default `false`). When `true`,
 `processAutoQueueAdvance()` runs every poll cycle and for each such project
 fills the pipeline up to a **pool depth**:
 
+Ordinary task creation is intentionally append-only within a project's backlog:
+when `POST /tasks` (or any other default `createTask()` caller) omits an
+explicit `position`, the data layer assigns `max(position) + 100` inside that
+project's backlog. Auto-queue then consumes the smallest backlog `position`,
+which makes ordinary backlog creation FIFO instead of LIFO.
+
 - **Sequential project** (`parallelEnabled = false`): pool depth = `1`. The
   next backlog task fires into `planning` only after the previous one
   reaches a terminal status (`done` / `verified`). "In-flight" is counted by
@@ -282,6 +288,17 @@ The system supports bulk task creation from a project's `.ai-factory/ROADMAP.md`
 6. WebSocket broadcasts `task:created` per task and `agent:wake` after batch
 
 **Deduplication:** Re-running import with the same alias is safe — existing tasks with matching titles are skipped. This makes the endpoint idempotent for reruns.
+
+**Ordering semantics:** Roadmap import is the explicit front-of-queue path.
+Imported tasks receive explicit backlog positions ahead of the current backlog
+minimum so phase/sequence order wins even though ordinary task creation now
+appends to the backlog tail. This ordering is intentional and separate from the
+default `POST /tasks` behavior.
+
+**Legacy data:** Existing backlog rows are not rewritten automatically during
+deploy because operators can manually reorder backlog positions. If legacy rows
+still reflect old LIFO-era positions, use the opt-in normalization utility
+documented in `docs/configuration.md`.
 
 **Tag taxonomy:** Tags enable UI filtering. The `roadmap` quick filter in the Board shows only roadmap-generated tasks. When the roadmap filter is active, a sub-filter row displays all available `roadmapAlias` values (e.g., `v1.0`, `v2.0`) as clickable chips, allowing users to narrow results to a specific roadmap. Selecting no alias shows all roadmap tasks; selecting one or more aliases filters to only those. Tags like `phase:backend` allow additional grouping refinements.
 

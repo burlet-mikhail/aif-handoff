@@ -288,6 +288,28 @@ describe("tasks API", () => {
       expect(body.status).toBe("backlog");
     });
 
+    it("lists ordinary created backlog tasks in append-to-tail order", async () => {
+      for (const title of ["A", "B", "C"]) {
+        const res = await app.request("/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            projectId: "test-project",
+          }),
+        });
+
+        expect(res.status).toBe(201);
+      }
+
+      const res = await app.request("/tasks");
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      expect(body.map((task: { title: string }) => task.title)).toEqual(["A", "B", "C"]);
+      expect(body.map((task: { position: number }) => task.position)).toEqual([1100, 1200, 1300]);
+    });
+
     it("should reject runtime profiles owned by a different project on create", async () => {
       const db = testDb.current;
       insertTestProject(db);

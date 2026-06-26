@@ -71,6 +71,8 @@ import {
 } from "@aif/shared";
 import { getDb } from "@aif/shared/server";
 
+export * from "./normalizeBacklogPositions.js";
+
 const log = createLogger("data");
 const AUTO_REVIEW_STRATEGY_SET = new Set<string>(AUTO_REVIEW_STRATEGIES);
 const AUTO_REVIEW_FINDING_SOURCE_SET = new Set<string>(AUTO_REVIEW_FINDING_SOURCES);
@@ -642,6 +644,15 @@ export function getMinBacklogPosition(projectId: string): number | null {
   return row?.minPos == null ? null : Number(row.minPos);
 }
 
+export function getMaxBacklogPosition(projectId: string): number | null {
+  const row = getDb()
+    .select({ maxPos: max(tasks.position) })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.status, "backlog")))
+    .get();
+  return row?.maxPos == null ? null : Number(row.maxPos);
+}
+
 /** Summary projection — excludes heavy text fields for list/search responses. */
 export type TaskSummaryRow = Pick<TaskRow,
   | "id" | "projectId" | "title" | "status" | "priority" | "position"
@@ -854,12 +865,8 @@ export function createTask(input: {
       manualReviewRequired: false,
       status: "backlog",
       position: input.position ?? (() => {
-        const row = db
-          .select({ minPos: min(tasks.position) })
-          .from(tasks)
-          .where(eq(tasks.status, "backlog"))
-          .get();
-        return (row?.minPos != null ? Number(row.minPos) : 1000) - 100;
+        const maxPosition = getMaxBacklogPosition(input.projectId);
+        return (maxPosition ?? 1000) + 100;
       })(),
       lastHeartbeatAt: now,
       createdAt: now,
@@ -1700,7 +1707,7 @@ export function nextBacklogTaskByPosition(projectId: string): TaskRow | undefine
         ),
       ),
     )
-    .orderBy(asc(tasks.position))
+    .orderBy(asc(tasks.position), asc(tasks.createdAt), asc(tasks.id))
     .limit(1)
     .get();
 }

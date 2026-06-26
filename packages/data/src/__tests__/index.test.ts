@@ -1250,14 +1250,16 @@ describe("data layer", () => {
       expect(all.map((p) => p.id)).toEqual(["proj-2"]);
     });
 
-    it("nextBacklogTaskByPosition picks the lowest-position backlog task", () => {
+    it("createTask appends default backlog positions per project and keeps auto-queue FIFO", () => {
       const a = createTask({ projectId: "proj-1", title: "A", description: "" });
       const b = createTask({ projectId: "proj-1", title: "B", description: "" });
-      // createTask assigns decreasing positions; b should be lower than a
-      const next = nextBacklogTaskByPosition("proj-1");
-      expect(next).toBeDefined();
-      expect(next!.position).toBeLessThanOrEqual(a!.position);
-      expect([a!.id, b!.id]).toContain(next!.id);
+      seedProject("proj-2");
+      const otherProjectTask = createTask({ projectId: "proj-2", title: "Other", description: "" });
+      const c = createTask({ projectId: "proj-1", title: "C", description: "" });
+
+      expect([a, b, c].map((task) => task?.position)).toEqual([1100, 1200, 1300]);
+      expect(otherProjectTask?.position).toBe(1100);
+      expect(nextBacklogTaskByPosition("proj-1")?.id).toBe(a?.id);
     });
 
     it("createTask honors an explicit position override for batch import callers", () => {
@@ -1289,6 +1291,59 @@ describe("data layer", () => {
       const ready = createTask({ projectId: "proj-1", title: "Ready", description: "" });
       const next = nextBacklogTaskByPosition("proj-1");
       expect(next!.id).toBe(ready!.id);
+    });
+
+    it("nextBacklogTaskByPosition breaks position ties by createdAt", () => {
+      testDb.current
+        .insert(tasks)
+        .values([
+          {
+            id: "later-created",
+            projectId: "proj-1",
+            title: "Later",
+            status: "backlog",
+            position: 100,
+            createdAt: "2026-06-23T00:00:02.000Z",
+          },
+          {
+            id: "earlier-created",
+            projectId: "proj-1",
+            title: "Earlier",
+            status: "backlog",
+            position: 100,
+            createdAt: "2026-06-23T00:00:01.000Z",
+          },
+        ])
+        .run();
+
+      expect(nextBacklogTaskByPosition("proj-1")?.id).toBe("earlier-created");
+    });
+
+    it("nextBacklogTaskByPosition breaks identical position and createdAt ties by id", () => {
+      const createdAt = "2026-06-23T00:00:01.000Z";
+      testDb.current
+        .insert(tasks)
+        .values([
+          {
+            id: "task-b",
+            projectId: "proj-1",
+            title: "Task B",
+            status: "backlog",
+            position: 100,
+            createdAt,
+          },
+          {
+            id: "task-a",
+            projectId: "proj-1",
+            title: "Task A",
+            status: "backlog",
+            position: 100,
+            createdAt,
+          },
+        ])
+        .run();
+
+      expect(nextBacklogTaskByPosition("proj-1")?.id).toBe("task-a");
     });
 
     it("countActivePipelineTasksForProject counts non-terminal pipeline statuses", () => {

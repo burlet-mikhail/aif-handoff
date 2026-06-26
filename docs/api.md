@@ -225,6 +225,11 @@ Reads `.ai-factory/ROADMAP.md` from the project root, uses Agent SDK to convert 
 
 **Deduplication:** Tasks are deduped by `projectId + normalizedTitle + roadmapAlias`. Re-running import with the same alias skips already-existing tasks.
 
+**Backlog ordering:** Roadmap import is the explicit front-of-queue path. New
+roadmap tasks receive explicit backlog positions ahead of the current backlog
+minimum so auto-queue consumes them by phase/sequence order before ordinary
+backlog rows.
+
 **Tag enrichment:** Each created task automatically receives tags: `roadmap`, `rm:<alias>`, `phase:<number>`, `phase:<name>`, `seq:<nn>`.
 
 **Errors:**
@@ -255,8 +260,10 @@ GET /projects/:id/auto-queue-mode
 ```
 
 Returns the current auto-queue state for the project. When enabled, the
-coordinator advances the next backlog task (by `position`) into planning
-whenever the project has no active/locked task.
+coordinator advances the next backlog task with the smallest `position` into
+planning whenever the project has no active/locked task. Ordinary `POST /tasks`
+creation appends new backlog rows to the tail of that project's backlog, so the
+default create path is FIFO.
 
 **Response:** `200 OK`
 
@@ -576,6 +583,9 @@ GET /tasks?projectId=<uuid>
 | `projectId` | query string | no       | Filter by project. Omit to list all tasks |
 
 **Response:** `200 OK` — array of task objects sorted by status order, then position.
+For backlog tasks, ordinary creation now places new rows at the backlog tail,
+so API consumers see default-created backlog tasks in creation order unless a
+caller supplies an explicit `position`.
 
 ### Create Task
 
@@ -611,6 +621,11 @@ POST /tasks
 | `content` | string\|null | Base64 content (max 2MB encoded) |
 
 **Response:** `201 Created` — the created task object.
+
+**Backlog ordering:** When `position` is not supplied by a specialized caller,
+the data layer appends the new backlog task to the tail of that project's
+backlog by assigning `max(position) + 100` within the project. Auto-queue then
+consumes the smallest backlog position.
 
 **WebSocket event:** `task:created`
 
@@ -810,6 +825,9 @@ as it writes `qaStatus` and the artifacts.
 ```
 PATCH /tasks/:id/position
 ```
+
+Manually changing backlog `position` changes auto-queue priority because the
+coordinator always consumes the smallest backlog position first.
 
 **Body:**
 | Field | Type | Description |

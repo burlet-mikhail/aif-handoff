@@ -447,6 +447,44 @@ When parallel mode is enabled for a project, tasks are forced to `mode = full` (
 
 Task worktrees are retained after terminal statuses (`done` / `verified`) for operator inspection and follow-up commits. Handoff does not remove them automatically; cleanup is an operator action. Long-running auto-queue projects should monitor sibling worktree disk usage.
 
+## Backlog Position Normalization
+
+Ordinary task creation now appends backlog rows to the tail of each project's
+backlog, and auto-queue consumes the smallest backlog `position`. Existing
+legacy rows are not rewritten automatically because operators can manually
+reorder backlog tasks via the API/UI.
+
+Use the normalization utility only when you intentionally want to overwrite the
+current backlog order and regenerate positions by `createdAt ASC, id ASC`.
+
+Preview all backlog changes (dry-run, no writes):
+
+```bash
+node --import tsx packages/data/src/normalizeBacklogPositions.ts
+```
+
+Preview a single project:
+
+```bash
+node --import tsx packages/data/src/normalizeBacklogPositions.ts --project PROJECT_ID
+```
+
+Apply the rewrite for one project:
+
+```bash
+node --import tsx packages/data/src/normalizeBacklogPositions.ts --project PROJECT_ID --apply
+```
+
+Behavior:
+
+- Default mode is dry-run. The utility only logs what would change.
+- `--apply` rewrites backlog positions to `100, 200, 300, ...` within the
+  selected scope.
+- The rewrite only touches `status = backlog` rows. Non-backlog tasks keep
+  their existing positions.
+- Applying the rewrite overwrites any manual backlog order in the selected
+  scope. Review the dry-run output first.
+
 ### Monitoring
 
 The coordinator logs concurrency state at `debug` level:

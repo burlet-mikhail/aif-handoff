@@ -15,6 +15,7 @@ import { useCreateProject } from "@/hooks/useProjects";
 import type { Project } from "@aif/shared/browser";
 
 const MINE = "_mine";
+const STORAGE_KEY = "github-import:owner";
 
 interface Props {
   open: boolean;
@@ -25,7 +26,13 @@ interface Props {
 export function GitHubImportDialog({ open, onOpenChange, onProjectCreated }: Props) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
-  const [owner, setOwner] = useState<string>(MINE);
+  const [owner, setOwner] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) ?? MINE;
+    } catch {
+      return MINE;
+    }
+  });
   const { data: accounts } = useGitHubAccounts(open);
   const {
     data: repos,
@@ -113,7 +120,14 @@ export function GitHubImportDialog({ open, onOpenChange, onProjectCreated }: Pro
           <Select
             value={owner}
             options={ownerOptions}
-            onChange={(e) => setOwner(e.target.value)}
+            onChange={(e) => {
+              setOwner(e.target.value);
+              try {
+                localStorage.setItem(STORAGE_KEY, e.target.value);
+              } catch {
+                /* localStorage may be blocked in private mode — selection still applies in-memory */
+              }
+            }}
             searchable={ownerOptions.length > 5}
             className="w-44"
           />

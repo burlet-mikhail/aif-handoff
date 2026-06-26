@@ -50,17 +50,35 @@ interface GhRepo {
 }
 
 // GET /github/repos?owner=<login> — list repos via gh CLI.
-// Без owner — репо активного аккаунта. С owner — репо указанного user/org
-// (вызывает `gh repo list <owner>`); требует, чтобы активный gh-аккаунт имел доступ.
+// Без owner — репо активного аккаунта. С owner — репо указанного user/org.
+// ВАЖНО: `gh repo list <owner>` отдаёт только public-репо даже когда owner ===
+// текущему gh-логину (gh трактует явный owner как «внешний» запрос). Поэтому
+// если owner совпадает с активным логином — вызываем `gh repo list` БЕЗ owner,
+// чтобы видеть все свои private/public/forks/archived.
 githubRouter.get("/repos", async (c) => {
   const env = getEnv();
   const gh = env.GH_CLI_PATH;
   const owner = c.req.query("owner")?.trim();
 
+  let effectiveOwner = owner;
+  if (owner) {
+    try {
+      const { stdout: meOut } = await execFileAsync(gh, ["api", "user", "--jq", ".login"], {
+        timeout: 10_000,
+      });
+      const me = meOut.trim();
+      if (me === owner) {
+        effectiveOwner = undefined;
+      }
+    } catch (err) {
+      log.debug({ err }, "Failed to fetch current gh login — falling back to explicit owner");
+    }
+  }
+
   const args = [
     "repo",
     "list",
-    ...(owner ? [owner] : []),
+    ...(effectiveOwner ? [effectiveOwner] : []),
     "--json",
     "nameWithOwner,description,url,isPrivate,updatedAt,defaultBranchRef",
     "--limit",
@@ -70,7 +88,7 @@ githubRouter.get("/repos", async (c) => {
   try {
     const { stdout } = await execFileAsync(gh, args, { timeout: EXEC_TIMEOUT_MS });
     const repos: GhRepo[] = JSON.parse(stdout);
-    log.debug({ owner, count: repos.length }, "Listed GitHub repos");
+    log.debug({ owner, effectiveOwner, count: repos.length }, "Listed GitHub repos");
     return c.json(repos);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

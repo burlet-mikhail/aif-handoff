@@ -76,7 +76,7 @@ services:
     entrypoint: !override
       - /bin/sh
       - -c
-      - "mkdir -p /run/angie && cp /etc/angie/http.d/production.conf.template /etc/angie/http.d/default.conf && exec angie -g 'daemon off; worker_processes 2;'"
+      - "mkdir -p /run/angie && sed -i 's/worker_processes.*/worker_processes 2;/' /etc/angie/angie.conf && cp /etc/angie/http.d/production.conf.template /etc/angie/http.d/default.conf && exec angie -g 'daemon off;'"
     volumes: !override []
     # Две сети:
     #   default — внутренняя сеть проекта (api/agent/mcp);

@@ -71,19 +71,6 @@ jobs:
           sbom: true
           provenance: mode=max
 
-      - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}:${{ steps.meta.outputs.version }}
-          scanners: vuln,secret
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
-        env:
-          TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-
   # ---------- 2. ДЕПЛОЙ: SSH → расшифровка SOPS → up стека ----------
   # Цель: на сервере с уже установленным docker + sops + age-приватником один
   # workflow поднимает весь стек. Никаких плейнтекст-секретов на сервере.

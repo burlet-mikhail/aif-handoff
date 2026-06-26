@@ -77,6 +77,11 @@ COPY --chown=node:node --from=build /app/packages/mcp ./packages/mcp
 COPY --chown=node:node package.json .
 COPY --chown=node:node .docker/docker-entrypoint.sh /usr/local/bin/
 RUN install -d -o node -g node /app /data /home/www
+# Симлинк .gitconfig в claude-auth volume — иначе при read_only rootfs
+# `gh auth setup-git` падает на lock /home/node/.gitconfig. Сам файл создастся
+# при первом git config, цель симлинка лежит на writable volume.
+RUN ln -sf /home/node/.claude/.gitconfig /home/node/.gitconfig \
+    && chown -h node:node /home/node/.gitconfig
 EXPOSE 3009 3010 3100
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npx", "tsx", "packages/api/src/index.ts"]

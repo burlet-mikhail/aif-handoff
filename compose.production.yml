@@ -76,7 +76,7 @@ services:
     entrypoint: !override
       - /bin/sh
       - -c
-      - "mkdir -p /run/angie && cp /etc/angie/http.d/production.conf.template /etc/angie/http.d/default.conf && exec angie -g 'daemon off;'"
+      - "mkdir -p /run/angie && cp /etc/angie/http.d/production.conf.template /etc/angie/http.d/default.conf && exec angie -g 'daemon off; worker_processes 2;'"
     volumes: !override []
     # Две сети:
     #   default — внутренняя сеть проекта (api/agent/mcp);
@@ -110,7 +110,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 256M
+          memory: 512M
     logging:
       driver: json-file
       options:
@@ -177,6 +177,10 @@ services:
     volumes: !override
       - ${HOME}/aif/data:/data
       - ${HOME}/aif/projects:/home/www
+      # entrypoint требует /home/node/.claude и .codex существующими и writable —
+      # без них read_only rootfs валит контейнер в restart-loop.
+      - claude-auth:/home/node/.claude
+      - codex-auth:/home/node/.codex
     depends_on:
       api:
         condition: service_healthy

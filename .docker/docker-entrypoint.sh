@@ -36,11 +36,15 @@ if [ "$(id -u)" = "0" ]; then
   install -d -o node -g node "$CLAUDE_TMP"
   export TMPDIR="$CLAUDE_TMP"
 
-  # Mark /home/www (bind-mounted host projects) as safe for git.
-  # Without this, git >= 2.36 refuses to operate in directories owned by a
-  # different uid ("detected dubious ownership") — the host uid rarely matches
-  # the container's node (1000).
+  # ── Git bootstrap ─────────────────────────────────────────────
+  # 1. safe.directory '*' — bind-mounted /home/www has host uid, git >= 2.36
+  #    refuses to operate without this ("detected dubious ownership").
+  # 2. gh auth setup-git — registers gh as git credential helper so HTTPS
+  #    clones/fetches use the stored gh OAuth token. Without this, every
+  #    git fetch/pull to a private repo fails with 401.
+  # Both write to ~/.gitconfig which is symlinked to the claude-auth volume.
   gosu node git config --global --add safe.directory '*'
+  gosu node gh auth setup-git 2>/dev/null || true
 
   export HOME=/home/node
   exec gosu node "$@"

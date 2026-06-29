@@ -37,6 +37,11 @@ export default defineConfig(async () => {
     // the native oxide binary as UTF-8 before Node can load it normally.
     plugins: [react(), tailwindcss()],
     build: {
+      // Disable crossorigin attribute on <script> tags. Cloudflare Access
+      // treats CORS-mode requests differently and blocks module scripts
+      // behind its auth wall even when the session cookie is present.
+      crossOriginLoading: false,
+      modulePreload: { polyfill: false },
       rolldownOptions: {
         output: {
           manualChunks(id) {

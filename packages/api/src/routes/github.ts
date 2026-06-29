@@ -21,11 +21,32 @@ const log = logger("github-route");
 
 const EXEC_TIMEOUT_MS = 120_000;
 
+interface GhHostEntry {
+  oauth_token?: string;
+  user?: string;
+  users?: Record<string, { oauth_token?: string }>;
+}
+
 /**
  * Reads per-user oauth tokens from gh's hosts.yml. Returns {login → token} map.
- * Without this we can only operate under the *active* gh-login; this lets us
- * impersonate any logged-in account by passing GH_TOKEN to a single subprocess
- * (no global `gh auth switch` → no race conditions on concurrent requests).
+ *
+ * gh CLI stores tokens in two formats depending on version:
+ *
+ *   Multi-account (gh >= 2.40):
+ *     github.com:
+ *       users:
+ *         alice: { oauth_token: gho_xxx }
+ *         bob:   { oauth_token: gho_yyy }
+ *       user: alice
+ *
+ *   Single-account (older gh / PAT auth):
+ *     github.com:
+ *       oauth_token: gho_xxx
+ *       user: alice
+ *
+ * Both formats are read so private repos are visible regardless of gh version.
+ * If hosts.yml has no tokens at all (keyring-only storage — rare in Docker),
+ * falls back to `gh auth token` to retrieve the active session token.
  */
 function readGhUserTokens(): Map<string, string> {
   const ghConfigDir = process.env.GH_CONFIG_DIR ?? join(homedir(), ".config", "gh");
@@ -34,17 +55,44 @@ function readGhUserTokens(): Map<string, string> {
 
   try {
     const doc = parseYaml(readFileSync(hostsPath, "utf8")) as
-      | { "github.com"?: { users?: Record<string, { oauth_token?: string }> } }
+      | { "github.com"?: GhHostEntry }
       | undefined;
-    const users = doc?.["github.com"]?.users ?? {};
+    const gh = doc?.["github.com"];
+    if (!gh) return new Map();
+
     const map = new Map<string, string>();
-    for (const [login, info] of Object.entries(users)) {
-      if (info?.oauth_token) map.set(login, info.oauth_token);
+
+    // Multi-account format: iterate all users
+    if (gh.users) {
+      for (const [login, info] of Object.entries(gh.users)) {
+        if (info?.oauth_token) map.set(login, info.oauth_token);
+      }
     }
+
+    // Single-account format: top-level oauth_token + user
+    if (gh.oauth_token && gh.user && !map.has(gh.user)) {
+      map.set(gh.user, gh.oauth_token);
+    }
+
     return map;
   } catch (err) {
     log.warn({ err }, "Failed to parse gh hosts.yml");
     return new Map();
+  }
+}
+
+/**
+ * Get the active gh auth token via `gh auth token`. Used as fallback when
+ * hosts.yml has no inline tokens (keyring storage or empty config).
+ */
+async function getActiveGhToken(): Promise<string | null> {
+  try {
+    const ghCli = getEnv().GH_CLI_PATH;
+    const { stdout } = await execFileAsync(ghCli, ["auth", "token"], { timeout: 5_000 });
+    const token = stdout.trim();
+    return token || null;
+  } catch {
+    return null;
   }
 }
 
@@ -92,7 +140,18 @@ githubRouter.get("/repos", async (c) => {
   const owner = c.req.query("owner")?.trim();
 
   const userTokens = readGhUserTokens();
-  const ownerToken = owner ? userTokens.get(owner) : undefined;
+  let ownerToken = owner ? userTokens.get(owner) : undefined;
+
+  // Fallback: if hosts.yml had no inline tokens (keyring storage, empty config,
+  // or format we didn't parse), try `gh auth token` for the active session.
+  // This covers single-account Docker setups where hosts.yml is minimal.
+  if (owner && !ownerToken && userTokens.size === 0) {
+    const activeToken = await getActiveGhToken();
+    if (activeToken) {
+      ownerToken = activeToken;
+      log.debug({ owner }, "Using active gh auth token as fallback for owner lookup");
+    }
+  }
 
   // Если owner совпадает с одним из залогиненных аккаунтов — берём его токен
   // и запрашиваем без owner-аргумента (видим все private+public+forks).

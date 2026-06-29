@@ -36,6 +36,12 @@ if [ "$(id -u)" = "0" ]; then
   install -d -o node -g node "$CLAUDE_TMP"
   export TMPDIR="$CLAUDE_TMP"
 
+  # Mark /home/www (bind-mounted host projects) as safe for git.
+  # Without this, git >= 2.36 refuses to operate in directories owned by a
+  # different uid ("detected dubious ownership") — the host uid rarely matches
+  # the container's node (1000).
+  gosu node git config --global --add safe.directory '*'
+
   export HOME=/home/node
   exec gosu node "$@"
 else

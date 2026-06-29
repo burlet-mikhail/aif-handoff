@@ -96,6 +96,51 @@ async function getActiveGhToken(): Promise<string | null> {
   }
 }
 
+/**
+ * Extract the GitHub owner from a remote URL or repo full name.
+ *   "burlet-mikhail/easygame"                         → "burlet-mikhail"
+ *   "https://github.com/burlet-mikhail/brom.git/"     → "burlet-mikhail"
+ *   "git@github.com:burlet-mikhail/brom.git"          → "burlet-mikhail"
+ */
+function extractOwner(repoRef: string): string | null {
+  // "owner/repo" format
+  const slash = repoRef.indexOf("/");
+  if (slash > 0 && !repoRef.includes(":") && !repoRef.includes("//")) {
+    return repoRef.slice(0, slash);
+  }
+  // HTTPS or SSH URL
+  const m = repoRef.match(/github\.com[/:]([^/]+)\//);
+  return m?.[1] ?? null;
+}
+
+/**
+ * Read the origin remote URL from a git repo and extract the owner.
+ */
+function getRepoOwner(rootPath: string): string | null {
+  try {
+    const configPath = join(rootPath, ".git", "config");
+    if (!existsSync(configPath)) return null;
+    const config = readFileSync(configPath, "utf8");
+    const m = config.match(/\[remote "origin"\][^[]*url\s*=\s*(\S+)/);
+    return m ? extractOwner(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a process env with GH_TOKEN set to the owner's token (if available).
+ * This ensures git/gh operations on private repos owned by non-active accounts
+ * authenticate correctly in multi-account setups.
+ */
+function envForOwner(owner: string | null): NodeJS.ProcessEnv {
+  if (!owner) return process.env;
+  const tokens = readGhUserTokens();
+  const token = tokens.get(owner);
+  if (!token) return process.env;
+  return { ...process.env, GH_TOKEN: token };
+}
+
 export const githubRouter = new Hono();
 
 /** Best-effort pull after checkout — returns output string or null on failure. */
@@ -104,6 +149,7 @@ async function autoPull(rootPath: string, branch: string): Promise<string | null
     const { stdout } = await execFileAsync("git", ["pull", "--ff-only"], {
       cwd: rootPath,
       timeout: EXEC_TIMEOUT_MS,
+      env: envForOwner(getRepoOwner(rootPath)),
     });
     const output = stdout.trim();
     log.debug({ rootPath, branch, output }, "Auto-pull after checkout succeeded");
@@ -265,6 +311,7 @@ githubRouter.post("/clone", jsonValidator(githubCloneSchema), async (c) => {
   try {
     await execFileAsync(gh, ["repo", "clone", repoFullName, targetPath], {
       timeout: EXEC_TIMEOUT_MS,
+      env: envForOwner(extractOwner(repoFullName)),
     });
 
     log.info({ repoFullName, targetPath }, "Repo cloned successfully");
@@ -288,6 +335,7 @@ githubRouter.post("/pull", jsonValidator(githubPullSchema), async (c) => {
     const { stdout } = await execFileAsync("git", ["pull", "--ff-only"], {
       cwd: rootPath,
       timeout: EXEC_TIMEOUT_MS,
+      env: envForOwner(getRepoOwner(rootPath)),
     });
 
     log.info({ rootPath, output: stdout.trim() }, "Git pull completed");
@@ -404,6 +452,7 @@ githubRouter.post("/fetch", jsonValidator(githubPullSchema), async (c) => {
     const { stdout, stderr } = await execFileAsync("git", ["fetch", "--all", "--prune"], {
       cwd: rootPath,
       timeout: EXEC_TIMEOUT_MS,
+      env: envForOwner(getRepoOwner(rootPath)),
     });
 
     const output = (stdout + stderr).trim() || "Fetched";
@@ -585,6 +634,7 @@ githubRouter.post("/push", jsonValidator(githubPullSchema), async (c) => {
     const { stdout, stderr } = await execFileAsync("git", pushArgs, {
       cwd: rootPath,
       timeout: EXEC_TIMEOUT_MS,
+      env: envForOwner(getRepoOwner(rootPath)),
     });
 
     const output = (stdout + stderr).trim() || "Pushed";
@@ -609,16 +659,20 @@ async function autoPullAllProjects(): Promise<void> {
     if (!rootPath || !existsSync(join(rootPath, ".git"))) continue;
 
     try {
+      const repoEnv = envForOwner(getRepoOwner(rootPath));
+
       // Fetch first so we know about new remote branches
       await execFileAsync("git", ["fetch", "--all", "--prune"], {
         cwd: rootPath,
         timeout: 60_000,
+        env: repoEnv,
       });
 
       // Then pull current branch (ff-only to avoid conflicts)
       await execFileAsync("git", ["pull", "--ff-only"], {
         cwd: rootPath,
         timeout: 60_000,
+        env: repoEnv,
       });
 
       log.debug({ rootPath, project: project.name }, "Auto-pull succeeded");
